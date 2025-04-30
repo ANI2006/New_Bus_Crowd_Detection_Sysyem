@@ -3,13 +3,10 @@ import cv2
 
 model = YOLO("best_new.pt")
 
-# For webcam: cv2.VideoCapture(0)
-# For video file: cv2.VideoCapture("bus_video.mp4")
-# For IP camera: cv2.VideoCapture("rtsp://your_camera_ip")
-# cap = cv2.VideoCapture(0)
+
 cap=cv2.VideoCapture("bus3.mp3")
 
-BUS_CAPACITY = 60  # set your bus max capacity
+BUS_CAPACITY = 60
 
 while True:
     ret, frame = cap.read()
@@ -19,7 +16,6 @@ while True:
     results = model(frame, conf=0.4, verbose=False)
     count = len(results[0].boxes)
 
-    # Density calculation
     occupancy = count / BUS_CAPACITY
     if occupancy < 0.5:
         density = "LOW"
@@ -31,10 +27,8 @@ while True:
         density = "HIGH"
         color = (0, 0, 255)      # red
 
-    # Draw detections
     annotated = results[0].plot()
 
-    # Overlay info
     cv2.rectangle(annotated, (0, 0), (400, 80), (0, 0, 0), -1)
     cv2.putText(annotated, f"People: {count}", (10, 35),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)

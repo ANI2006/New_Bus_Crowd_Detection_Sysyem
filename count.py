@@ -3,28 +3,26 @@ import numpy as np
 import supervision as sv
 from ultralytics import YOLO
 
-# ── Config ─────────────────────────────────────────────────────────────────────
-VIDEO_PATH   = "bus_enter.mov"   # ← change to your video
+VIDEO_PATH   = "bus_samsung.mov"
 MODEL_PATH   = "best_new.pt"
-LINE_RATIO   = 0.55               # counting line: 55% down the frame
+LINE_RATIO   = 0.55
 BUS_CAPACITY = 60
 
-# ── Palette (BGR) ──────────────────────────────────────────────────────────────
+
 C_BG     = (15,  17,  20)
 C_BORDER = (50,  55,  65)
 C_WHITE  = (235, 235, 235)
 C_DIM    = (120, 120, 130)
-C_GREEN  = (80,  220, 140)    # entered
-C_RED    = (80,  90,  230)    # exited
-C_YELLOW = (40,  210, 255)    # in bus
-C_LINE   = (60,  180, 255)    # counting line
-C_LGLOW  = (30,  90,  130)    # line glow
+C_GREEN  = (80,  220, 140)
+C_RED    = (80,  90,  230)
+C_YELLOW = (40,  210, 255)
+C_LINE   = (60,  180, 255)
+C_LGLOW  = (30,  90,  130)
 
 FONT   = cv2.FONT_HERSHEY_DUPLEX
 FONT_S = cv2.FONT_HERSHEY_SIMPLEX
 
 
-# ── Drawing helpers ────────────────────────────────────────────────────────────
 
 def alpha_rect(img, x, y, w, h, color, alpha=0.60):
     overlay = img.copy()
@@ -39,12 +37,9 @@ def border_rect(img, x, y, w, h, color, t=2):
 def stat_card(img, x, y, w, h, label, value, color):
     alpha_rect(img, x, y, w, h, C_BG, alpha=0.78)
     border_rect(img, x, y, w, h, C_BORDER)
-    # top accent bar
     cv2.rectangle(img, (x + 10, y + 1), (x + w - 10, y + 4), color, -1)
-    # label
     cv2.putText(img, label, (x + 14, y + 26),
                 FONT_S, 0.48, C_DIM, 1, cv2.LINE_AA)
-    # value — centred
     val = str(value)
     (tw, _), _ = cv2.getTextSize(val, FONT, 1.5, 2)
     cv2.putText(img, val, (x + (w - tw) // 2, y + h - 14),
@@ -63,14 +58,13 @@ def capacity_bar(img, x, y, w, in_bus, capacity):
 
 
 def counting_line(img, line_y, w):
-    # glow
+
     cv2.line(img, (0, line_y), (w, line_y), C_LGLOW, 8, cv2.LINE_AA)
-    # dashed line
     x, dash, gap = 0, 20, 10
     while x < w:
         cv2.line(img, (x, line_y), (min(x + dash, w), line_y), C_LINE, 2, cv2.LINE_AA)
         x += dash + gap
-    # label
+
     lbl = " COUNTING LINE "
     (tw, th), _ = cv2.getTextSize(lbl, FONT_S, 0.44, 1)
     px = w - tw - 20
@@ -81,7 +75,6 @@ def counting_line(img, line_y, w):
 def hud(img, in_count, out_count, in_bus, frame_idx, fps_val, capacity):
     h, w = img.shape[:2]
 
-    # ── Right-side stat cards ─────────────────────────────────────────────────
     cw, ch, gap = 205, 82, 8
     cx = w - cw - 14
     cy = 14
@@ -89,7 +82,6 @@ def hud(img, in_count, out_count, in_bus, frame_idx, fps_val, capacity):
     stat_card(img, cx, cy + ch + gap,   cw, ch, "EXITED",  out_count, C_RED)
     stat_card(img, cx, cy + (ch+gap)*2, cw, ch, "IN BUS",  in_bus,    C_YELLOW)
 
-    # ── Capacity bar card ─────────────────────────────────────────────────────
     by = cy + (ch + gap) * 3 + 4
     alpha_rect(img, cx, by, cw, 44, C_BG, alpha=0.78)
     border_rect(img, cx, by, cw, 44, C_BORDER)
@@ -97,7 +89,6 @@ def hud(img, in_count, out_count, in_bus, frame_idx, fps_val, capacity):
                 FONT_S, 0.44, C_DIM, 1, cv2.LINE_AA)
     capacity_bar(img, cx + 14, by + 28, cw - 55, in_bus, capacity)
 
-    # ── Top-left title bar ────────────────────────────────────────────────────
     alpha_rect(img, 10, 10, 270, 56, C_BG, alpha=0.80)
     border_rect(img, 10, 10, 270, 56, C_BORDER)
     cv2.rectangle(img, (10, 10), (14, 66), C_YELLOW, -1)   # left accent stripe
@@ -106,7 +97,6 @@ def hud(img, in_count, out_count, in_bus, frame_idx, fps_val, capacity):
     cv2.putText(img, f"frame {frame_idx:05d}   {fps_val:.0f} fps", (22, 56),
                 FONT_S, 0.38, C_DIM, 1, cv2.LINE_AA)
 
-    # ── Bottom density badge ──────────────────────────────────────────────────
     ratio = in_bus / max(capacity, 1)
     if ratio < 0.5:
         density, dc = "LOW DENSITY",  C_GREEN
@@ -122,7 +112,6 @@ def hud(img, in_count, out_count, in_bus, frame_idx, fps_val, capacity):
     cv2.putText(img, density, (bx + 12, by2), FONT_S, 0.52, dc, 1, cv2.LINE_AA)
 
 
-# ── Setup ──────────────────────────────────────────────────────────────────────
 model = YOLO(MODEL_PATH)
 cap   = cv2.VideoCapture(VIDEO_PATH)
 
@@ -159,7 +148,6 @@ label_annotator = sv.LabelAnnotator(
 
 frame_idx = 0
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
 while True:
     ret, frame = cap.read()
     if not ret:
