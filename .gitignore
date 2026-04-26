@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+venv/
+data/
+*.pt
+*.h5
+.DS_Store
+*.mp4
+*.mov
+*.mp3
+*.pt
+__pycache__/
