@@ -1,18 +1,19 @@
-import os, cv2, base64, time, threading, math
-from flask import Flask, render_template, request, jsonify
+import os, cv2, base64, time, threading
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 
+import config
+from tracker import CentroidTracker, LineCrossCounter
+from drawing import draw_counting_line, draw_tracked_boxes, draw_alert_banner, C_CYAN, C_YELLOW
+from logger  import SessionLogger, analyze_logs
+
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "busmonitor2024"
-app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["SECRET_KEY"]    = "busoccupancy_ai_2026"
+app.config["UPLOAD_FOLDER"] = config.UPLOAD_FOLDER
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-os.makedirs("uploads", exist_ok=True)
-
-BUS_CAPACITY = 60
-processing_active = False
-processing_thread = None
-LINE_RATIO = 0.55   
+os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(config.LOG_FOLDER,    exist_ok=True)
 
 try:
     from ultralytics import YOLO
@@ -21,167 +22,85 @@ except ImportError:
     YOLO_AVAILABLE = False
     print("WARNING: ultralytics not installed — running in DEMO mode")
 
-MODEL_PATH = "best_new.pt"
+
+# Shared dual-door state  
+
+class DualDoorState:
+    def __init__(self, capacity, initial_count):
+        self.lock          = threading.Lock()
+        self.capacity      = capacity
+        self.initial_count = initial_count
+
+        # per-door counts
+        self.door_a_in  = self.door_a_out  = 0
+        self.door_b_in  = self.door_b_out  = 0
+
+        # per-door processing status
+        self.door_a_done = self.door_b_done = False
+        self.door_a_frame = self.door_b_frame = None
+        self.door_a_fps   = self.door_b_fps   = 0.0
+        self.door_a_progress = self.door_b_progress = 0
+
+        self.timeline   = []
+        self.start_time = time.time()
+        self._last_tl   = 0
+
+    @property
+    def in_count(self):
+        return self.door_a_in + self.door_b_in
+
+    @property
+    def out_count(self):
+        return self.door_a_out + self.door_b_out
+
+    @property
+    def count(self):
+        return max(0, self.initial_count + self.in_count - self.out_count)
+
+    def append_timeline(self, occ_pct):
+        now = time.time() - self.start_time
+        if now - self._last_tl >= 1.0:
+            self.timeline.append({"t": round(now, 1), "count": self.count, "pct": occ_pct})
+            self._last_tl = now
+        if len(self.timeline) > 300:
+            self.timeline = self.timeline[-300:]
 
 
+sessions = {}
+sessions_lock = threading.Lock()
 
-class CentroidTracker:
-    """Assigns persistent IDs to detections by nearest-centroid matching."""
-    def __init__(self, max_disappeared=30):
-        self.next_id         = 0
-        self.objects         = {}   # id -> (cx, cy)
-        self.disappeared     = {}   # id -> frames missing
-        self.max_disappeared = max_disappeared
-
-    def _register(self, cx, cy):
-        self.objects[self.next_id]    = (cx, cy)
-        self.disappeared[self.next_id] = 0
-        self.next_id += 1
-
-    def _deregister(self, oid):
-        del self.objects[oid]
-        del self.disappeared[oid]
-
-    def update(self, boxes):
-        """boxes: list of [x1,y1,x2,y2]. Returns dict {id: (cx,cy)}."""
-        if not boxes:
-            for oid in list(self.disappeared):
-                self.disappeared[oid] += 1
-                if self.disappeared[oid] > self.max_disappeared:
-                    self._deregister(oid)
-            return dict(self.objects)
-
-        centroids = [(int((x1+x2)/2), int((y1+y2)/2)) for x1,y1,x2,y2 in boxes]
-
-        if not self.objects:
-            for c in centroids:
-                self._register(*c)
-        else:
-            oids       = list(self.objects.keys())
-            ocentroids = list(self.objects.values())
-            used_rows, used_cols = set(), set()
-            pairs = sorted(
-                [(math.hypot(oc[0]-nc[0], oc[1]-nc[1]), r, c)
-                 for r, oc in enumerate(ocentroids)
-                 for c, nc in enumerate(centroids)]
-            )
-            for d, r, c in pairs:
-                if r in used_rows or c in used_cols:
-                    continue
-                if d > 120:
-                    break
-                oid = oids[r]
-                self.objects[oid]    = centroids[c]
-                self.disappeared[oid] = 0
-                used_rows.add(r)
-                used_cols.add(c)
-
-            for r, oid in enumerate(oids):
-                if r not in used_rows:
-                    self.disappeared[oid] += 1
-                    if self.disappeared[oid] > self.max_disappeared:
-                        self._deregister(oid)
-
-            for c in range(len(centroids)):
-                if c not in used_cols:
-                    self._register(*centroids[c])
-
-        return dict(self.objects)
+single_sessions = {}
 
 
-class LineCrossCounter:
-    """Counts upward/downward crossings of a horizontal line."""
-    def __init__(self, line_y):
-        self.line_y    = line_y
-        self.prev_cy   = {}   
-        self.in_count  = 0
-        self.out_count = 0
-        self.cooldown  = {}   
-
-    def update(self, tracked):
-        for oid, (cx, cy) in tracked.items():
-            if oid not in self.cooldown:
-                self.cooldown[oid] = 0
-            if self.cooldown[oid] > 0:
-                self.cooldown[oid] -= 1
-
-            if oid in self.prev_cy and self.cooldown[oid] == 0:
-                prev = self.prev_cy[oid]
-                if prev < self.line_y <= cy:        
-                    self.in_count += 1
-                    self.cooldown[oid] = 20
-                elif prev > self.line_y >= cy:
-                    self.out_count += 1
-                    self.cooldown[oid] = 20
-
-            self.prev_cy[oid] = cy
-
-        for oid in list(self.prev_cy):
-            if oid not in tracked:
-                del self.prev_cy[oid]
-                self.cooldown.pop(oid, None)
-
-
+Helpers 
 
 def get_density(count, capacity):
     r = count / max(capacity, 1)
-    if r < 0.4:   return "LOW",    "#22c55e"
-    elif r < 0.7: return "MEDIUM", "#f59e0b"
-    elif r < 0.9: return "HIGH",   "#ef4444"
-    else:         return "FULL",   "#dc2626"
+    if r < config.DENSITY_LOW:      return "LOW",    "#22c55e"
+    elif r < config.DENSITY_MEDIUM: return "MEDIUM", "#f59e0b"
+    elif r < config.DENSITY_HIGH:   return "HIGH",   "#ef4444"
+    else:                           return "FULL",   "#dc2626"
 
 
 def frame_to_b64(frame):
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, config.JPEG_QUALITY])
     return base64.b64encode(buf).decode("utf-8")
 
 
-def draw_counting_line(frame, line_y, width, in_count, out_count):
-    cv2.line(frame, (0, line_y), (width, line_y), (20, 80, 80), 12, cv2.LINE_AA)
-    x = 0
-    while x < width:
-        cv2.line(frame, (x, line_y), (min(x+22, width), line_y),
-                 (60, 210, 255), 2, cv2.LINE_AA)
-        x += 32
-        
-    cv2.rectangle(frame, (0, line_y - 30), (145, line_y + 26), (10, 10, 10), -1)
-    cv2.putText(frame, f"  IN : {in_count}",  (4, line_y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (80, 220, 140), 1, cv2.LINE_AA)
-    cv2.putText(frame, f"  OUT: {out_count}", (4, line_y + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (80, 90, 230), 1, cv2.LINE_AA)
-    lbl = " COUNTING LINE "
-    (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.44, 1)
-    px = width - tw - 20
-    cv2.rectangle(frame, (px - 4, line_y - th - 10), (px + tw + 4, line_y + 4), (10, 10, 10), -1)
-    cv2.putText(frame, lbl, (px, line_y - 3),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.44, (60, 210, 255), 1, cv2.LINE_AA)
+def get_alert(occupancy_pct):
+    if occupancy_pct >= 100:
+        return {"level": "critical", "msg": "Bus is at full capacity!"}
+    elif occupancy_pct >= 80:
+        return {"level": "warning",  "msg": f"Bus is {occupancy_pct}% full — nearly at capacity"}
+    return None
 
 
-def draw_tracked_boxes(frame, boxes, tracked):
-    color = (80, 220, 140)
-    for (x1, y1, x2, y2) in boxes:
-        cx = int((x1 + x2) / 2)
-        cy = int((y1 + y2) / 2)
-        best_id, best_d = None, 9999
-        for oid, (ox, oy) in tracked.items():
-            d = math.hypot(cx - ox, cy - oy)
-            if d < best_d:
-                best_d, best_id = d, oid
+# Single-video processing loop 
 
-        cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2, cv2.LINE_AA)
-        cv2.circle(frame, (cx, cy), 4, (60, 210, 255), -1, cv2.LINE_AA)
-        if best_id is not None and best_d < 120:
-            lbl = f"#{best_id}"
-            (lw, lh), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
-            cv2.rectangle(frame, (int(x1), int(y1) - lh - 8),
-                          (int(x1) + lw + 6, int(y1)), (10, 10, 10), -1)
-            cv2.putText(frame, lbl, (int(x1) + 3, int(y1) - 4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
-
-
-
-def process_video_live(video_path, sid, capacity, mode, line_ratio):
-    global processing_active
+def process_video_single(video_path, sid, capacity, mode, line_ratio,
+                          initial_count):
+    with sessions_lock:
+        single_sessions[sid] = {"active": True}
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -195,22 +114,26 @@ def process_video_live(video_path, sid, capacity, mode, line_ratio):
 
     socketio.emit("video_info", {
         "total_frames": total_frames, "fps": round(fps, 1),
-        "width": width, "height": height
+        "width": width, "height": height,
     }, to=sid)
 
     LINE_Y  = int(height * line_ratio)
-    model   = YOLO(MODEL_PATH) if (YOLO_AVAILABLE and os.path.exists(MODEL_PATH)) else None
-    tracker = CentroidTracker(max_disappeared=int(fps * 2))
+    model   = YOLO(config.MODEL_PATH) if (YOLO_AVAILABLE and os.path.exists(config.MODEL_PATH)) else None
+    tracker = CentroidTracker(max_disappeared=int(fps * config.TRACKER_MAX_GONE))
     counter = LineCrossCounter(LINE_Y)
+    logger  = SessionLogger(video_path)
 
     frame_idx = 0
     fps_buf   = []
     prev_time = time.time()
-    count = in_count = out_count = 0
+    in_count  = out_count = 0
+    count     = initial_count
+    last_alert_level = None
     SKIP         = max(1, int(fps // 10)) if mode == "batch" else 1
-    STREAM_EVERY = 2
+    timeline     = []
+    last_tl_time = 0
 
-    while processing_active:
+    while single_sessions.get(sid, {}).get("active", False):
         ret, frame = cap.read()
         if not ret:
             break
@@ -221,31 +144,32 @@ def process_video_live(video_path, sid, capacity, mode, line_ratio):
         now = time.time()
         fps_buf.append(1.0 / max(now - prev_time, 1e-6))
         prev_time = now
-        if len(fps_buf) > 30:
-            fps_buf.pop(0)
+        if len(fps_buf) > 30: fps_buf.pop(0)
         live_fps = sum(fps_buf) / len(fps_buf)
 
         annotated = frame.copy()
-        boxes     = []
+        boxes = []
 
         if model:
-            results = model(frame, conf=0.25, verbose=False)[0]
+            results = model(frame, conf=config.CONF_THRESHOLD, verbose=False)[0]
             boxes   = results.boxes.xyxy.cpu().numpy().tolist()
-
             if mode == "batch":
-                count     = len(boxes)
+                count     = len(boxes) + initial_count
                 annotated = results.plot()
             else:
-                tracked   = tracker.update(boxes)
+                tracked  = tracker.update(boxes)
                 counter.update(tracked)
                 in_count  = counter.in_count
                 out_count = counter.out_count
-                count     = max(0, in_count - out_count)
-                draw_tracked_boxes(annotated, boxes, tracked)
+                count     = max(0, initial_count + in_count - out_count)
                 draw_counting_line(annotated, LINE_Y, width, in_count, out_count)
+                draw_tracked_boxes(annotated, boxes, tracked)
         else:
             import random
-            count = random.randint(10, 45)
+            delta     = random.randint(-1, 2)
+            count     = max(0, count + delta)
+            in_count  = max(0, in_count + max(0, delta))
+            out_count = max(0, out_count + max(0, -delta))
             cv2.putText(annotated, "DEMO — no model loaded", (20, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
             draw_counting_line(annotated, LINE_Y, width, in_count, out_count)
@@ -254,34 +178,207 @@ def process_video_live(video_path, sid, capacity, mode, line_ratio):
         occ_pct  = round(min(count / max(capacity, 1), 1.0) * 100)
         progress = round(frame_idx / max(total_frames, 1) * 100)
 
+        draw_alert_banner(annotated, density, occ_pct)
+        logger.log(frame_idx, count, in_count, out_count, occ_pct, density)
+
+        elapsed = now - logger.start_time
+        if elapsed - last_tl_time >= 1.0:
+            timeline.append({"t": round(elapsed, 1), "count": count, "pct": occ_pct})
+            last_tl_time = elapsed
+
+        alert = get_alert(occ_pct)
+        alert_payload = None
+        if alert:
+            if alert["level"] != last_alert_level:
+                alert_payload    = alert
+                last_alert_level = alert["level"]
+        else:
+            last_alert_level = None
+
         frame_b64 = None
-        if frame_idx % (SKIP * STREAM_EVERY) == 0:
-            out_w = min(width, 960)
+        if frame_idx % (SKIP * config.STREAM_EVERY) == 0:
+            out_w = min(width, config.STREAM_WIDTH)
             out_h = int(height * out_w / width)
             small = cv2.resize(annotated, (out_w, out_h))
             frame_b64 = frame_to_b64(small)
 
         payload = {
             "frame_idx": frame_idx, "total_frames": total_frames,
-            "progress": progress,   "count": count,
-            "capacity": capacity,   "density": density,
-            "density_color": color_hex, "occupancy_pct": occ_pct,
-            "fps": round(live_fps, 1),
-            "in_count": in_count,   "out_count": out_count,
-            "mode": mode,
+            "progress": progress, "count": count, "capacity": capacity,
+            "density": density, "density_color": color_hex,
+            "occupancy_pct": occ_pct, "fps": round(live_fps, 1),
+            "in_count": in_count, "out_count": out_count,
+            "mode": mode, "dual_door": False,
+            "initial_count": initial_count, "timeline": timeline[-60:],
         }
-        if frame_b64:
-            payload["frame"] = frame_b64
+        if frame_b64:    payload["frame"]  = frame_b64
+        if alert_payload: payload["alert"] = alert_payload
 
         socketio.emit("frame_data", payload, to=sid)
         socketio.sleep(0)
 
     cap.release()
-    processing_active = False
+    logger.close()
+    with sessions_lock:
+        single_sessions.pop(sid, None)
+
     socketio.emit("done", {
         "total_frames": frame_idx, "in_count": in_count,
-        "out_count": out_count,    "final_count": count,
+        "out_count": out_count, "final_count": count,
+        "log_file": logger.path, "timeline": timeline,
     }, to=sid)
+
+
+# Dual-video per-door processing loop 
+
+def process_door(video_path, door_label, sid, state: DualDoorState,
+                 mode, line_ratio):
+    """Runs in its own thread. Updates shared DualDoorState."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        socketio.emit("error", {"msg": f"Cannot open Door {door_label} video"}, to=sid)
+        return
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 30
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    LINE_Y  = int(height * line_ratio)
+    color   = C_CYAN if door_label == "A" else C_YELLOW
+    model   = YOLO(config.MODEL_PATH) if (YOLO_AVAILABLE and os.path.exists(config.MODEL_PATH)) else None
+    tracker = CentroidTracker(max_disappeared=int(fps * config.TRACKER_MAX_GONE))
+    counter = LineCrossCounter(LINE_Y, door_label)
+    logger  = SessionLogger(f"{video_path}_door{door_label}")
+
+    frame_idx = 0
+    fps_buf   = []
+    prev_time = time.time()
+    SKIP      = max(1, int(fps // 10)) if mode == "batch" else 1
+
+    while True:
+        with sessions_lock:
+            sess = sessions.get(sid)
+            if sess is None or not sess["active"]:
+                break
+
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_idx += 1
+        if frame_idx % SKIP != 0:
+            continue
+
+        now = time.time()
+        fps_buf.append(1.0 / max(now - prev_time, 1e-6))
+        prev_time = now
+        if len(fps_buf) > 30: fps_buf.pop(0)
+        live_fps = sum(fps_buf) / len(fps_buf)
+
+        annotated = frame.copy()
+        boxes = []
+
+        if model:
+            results = model(frame, conf=config.CONF_THRESHOLD, verbose=False)[0]
+            boxes   = results.boxes.xyxy.cpu().numpy().tolist()
+            tracked = tracker.update(boxes)
+            counter.update(tracked)
+            draw_counting_line(annotated, LINE_Y, width,
+                               counter.in_count, counter.out_count,
+                               label=f"DOOR {door_label}", color=color)
+            draw_tracked_boxes(annotated, boxes, tracked)
+        else:
+            import random
+            delta = random.randint(-1, 2)
+            counter.in_count  = max(0, counter.in_count  + max(0,  delta))
+            counter.out_count = max(0, counter.out_count + max(0, -delta))
+            cv2.putText(annotated, f"DEMO Door {door_label}", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
+            draw_counting_line(annotated, LINE_Y, width,
+                               counter.in_count, counter.out_count,
+                               label=f"DOOR {door_label}", color=color)
+
+        frame_b64 = None
+        if frame_idx % (SKIP * config.STREAM_EVERY) == 0:
+            out_w = min(width, config.STREAM_WIDTH // 2)   
+            out_h = int(height * out_w / width)
+            small = cv2.resize(annotated, (out_w, out_h))
+            frame_b64 = frame_to_b64(small)
+
+        progress = round(frame_idx / max(total_frames, 1) * 100)
+
+        with state.lock:
+            if door_label == "A":
+                state.door_a_in   = counter.in_count
+                state.door_a_out  = counter.out_count
+                state.door_a_fps  = round(live_fps, 1)
+                state.door_a_progress = progress
+                if frame_b64: state.door_a_frame = frame_b64
+            else:
+                state.door_b_in   = counter.in_count
+                state.door_b_out  = counter.out_count
+                state.door_b_fps  = round(live_fps, 1)
+                state.door_b_progress = progress
+                if frame_b64: state.door_b_frame = frame_b64
+
+            count    = state.count
+            capacity = state.capacity
+            density, color_hex = get_density(count, capacity)
+            occ_pct  = round(min(count / max(capacity, 1), 1.0) * 100)
+            state.append_timeline(occ_pct)
+
+            payload = {
+                "dual_door":     True,
+                "door_label":    door_label,
+                "progress_a":    state.door_a_progress,
+                "progress_b":    state.door_b_progress,
+                "count":         count,
+                "capacity":      capacity,
+                "density":       density,
+                "density_color": color_hex,
+                "occupancy_pct": occ_pct,
+                "fps_a":         state.door_a_fps,
+                "fps_b":         state.door_b_fps,
+                "door_a_in":     state.door_a_in,
+                "door_a_out":    state.door_a_out,
+                "door_b_in":     state.door_b_in,
+                "door_b_out":    state.door_b_out,
+                "in_count":      state.in_count,
+                "out_count":     state.out_count,
+                "initial_count": state.initial_count,
+                "timeline":      state.timeline[-60:],
+                "frame_a":       state.door_a_frame,
+                "frame_b":       state.door_b_frame,
+            }
+            alert = get_alert(occ_pct)
+            if alert: payload["alert"] = alert
+
+        logger.log(frame_idx, count, counter.in_count, counter.out_count,
+                   occ_pct, density)
+        socketio.emit("dual_frame_data", payload, to=sid)
+        socketio.sleep(0)
+
+    cap.release()
+    logger.close()
+
+    with state.lock:
+        if door_label == "A":
+            state.door_a_done = True
+        else:
+            state.door_b_done = True
+        both_done = state.door_a_done and state.door_b_done
+
+    if both_done:
+        with sessions_lock:
+            sessions.pop(sid, None)
+        socketio.emit("done", {
+            "dual_door":   True,
+            "door_a_in":   state.door_a_in,  "door_a_out": state.door_a_out,
+            "door_b_in":   state.door_b_in,  "door_b_out": state.door_b_out,
+            "in_count":    state.in_count,   "out_count":  state.out_count,
+            "final_count": state.count,
+            "timeline":    state.timeline,
+        }, to=sid)
 
 
 
@@ -297,40 +394,110 @@ def upload():
     f = request.files["video"]
     if not f.filename:
         return jsonify({"error": "Empty filename"}), 400
-    path = os.path.join(app.config["UPLOAD_FOLDER"], f.filename)
+    path = os.path.join(config.UPLOAD_FOLDER, f.filename)
     f.save(path)
     return jsonify({"ok": True, "path": path, "name": f.filename})
 
 
+@app.route("/logs")
+def list_logs():
+    files = sorted(os.listdir(config.LOG_FOLDER), reverse=True)
+    csv_files = [f for f in files if f.endswith(".csv")]
+    return jsonify({"logs": csv_files})
+
+
+@app.route("/logs/<filename>")
+def download_log(filename):
+    return send_from_directory(config.LOG_FOLDER, filename, as_attachment=True)
+
+
+@app.route("/analytics")
+def analytics():
+    hourly, summaries = analyze_logs()
+    return jsonify({"hourly": hourly, "summaries": summaries})
+
+
+
 @socketio.on("start_processing")
 def handle_start(data):
-    global processing_active, processing_thread, BUS_CAPACITY, LINE_RATIO
-    if processing_active:
-        emit("error", {"msg": "Already processing"})
-        return
-    video_path = data.get("path")
-    mode       = data.get("mode", "live")
-    capacity   = data.get("capacity", BUS_CAPACITY)
-    line_ratio = float(data.get("line_ratio", LINE_RATIO))
+    sid = request.sid
+
+    with sessions_lock:
+        if sid in sessions or sid in single_sessions:
+            emit("error", {"msg": "Already processing"})
+            return
+
+    video_path    = data.get("path")
+    mode          = data.get("mode", "live")
+    capacity      = int(data.get("capacity",      config.BUS_CAPACITY))
+    line_ratio    = float(data.get("line_ratio",  config.LINE_RATIO))
+    initial_count = int(data.get("initial_count", config.INITIAL_COUNT))
+
     if not video_path or not os.path.exists(video_path):
         emit("error", {"msg": "Video file not found"})
         return
-    processing_active = True
-    sid = request.sid
-    processing_thread = threading.Thread(
-        target=process_video_live,
-        args=(video_path, sid, capacity, mode, line_ratio),
+
+    t = threading.Thread(
+        target=process_video_single,
+        args=(video_path, sid, capacity, mode, line_ratio, initial_count),
         daemon=True
     )
-    processing_thread.start()
+    t.start()
+
+
+@socketio.on("start_dual_processing")
+def handle_start_dual(data):
+    sid = request.sid
+
+    with sessions_lock:
+        if sid in sessions or sid in single_sessions:
+            emit("error", {"msg": "Already processing"})
+            return
+
+    path_a        = data.get("path_a")
+    path_b        = data.get("path_b")
+    mode          = data.get("mode",          "live")
+    capacity      = int(data.get("capacity",      config.BUS_CAPACITY))
+    line_ratio_a  = float(data.get("line_ratio_a", config.LINE_RATIO))
+    line_ratio_b  = float(data.get("line_ratio_b", config.LINE_RATIO_B))
+    initial_count = int(data.get("initial_count",  config.INITIAL_COUNT))
+
+    for label, path in [("A", path_a), ("B", path_b)]:
+        if not path or not os.path.exists(path):
+            emit("error", {"msg": f"Door {label} video file not found"})
+            return
+
+    state = DualDoorState(capacity, initial_count)
+
+    t_a = threading.Thread(
+        target=process_door,
+        args=(path_a, "A", sid, state, mode, line_ratio_a),
+        daemon=True
+    )
+    t_b = threading.Thread(
+        target=process_door,
+        args=(path_b, "B", sid, state, mode, line_ratio_b),
+        daemon=True
+    )
+
+    with sessions_lock:
+        sessions[sid] = {"active": True, "state": state, "threads": [t_a, t_b]}
+
+    t_a.start()
+    t_b.start()
 
 
 @socketio.on("stop_processing")
 def handle_stop(_):
-    global processing_active
-    processing_active = False
+    sid = request.sid
+    with sessions_lock:
+        if sid in sessions:
+            sessions[sid]["active"] = False
+        if sid in single_sessions:
+            single_sessions[sid]["active"] = False
     emit("stopped", {})
 
 
 if __name__ == "__main__":
+    print("🚌 BusOccupancy AI — starting on http://localhost:5051")
     socketio.run(app, debug=True, port=5051)

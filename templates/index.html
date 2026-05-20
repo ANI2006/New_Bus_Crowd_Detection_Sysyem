@@ -1,903 +1,693 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bus Occupancy Monitor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BusOccupancy AI</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0f1117;
+    --card:    #1a1d27;
+    --border:  #2a2d3a;
+    --accent:  #6366f1;
+    --cyan:    #06b6d4;
+    --amber:   #f59e0b;
+    --green:   #22c55e;
+    --red:     #ef4444;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
 
-:root {
-  --bg:       #0a0b0d;
-  --surface:  #111318;
-  --surface2: #181b22;
-  --border:   #1f2330;
-  --border2:  #2a2f40;
-  --text:     #e8eaf0;
-  --muted:    #5a6070;
-  --accent:   #3b82f6;
-  --green:    #22c55e;
-  --amber:    #f59e0b;
-  --red:      #ef4444;
-  --mono:     'Space Mono', monospace;
-  --sans:     'DM Sans', sans-serif;
-}
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+  header h1 { font-size: 1.25rem; font-weight: 700; }
+  header span { font-size: 0.75rem; color: var(--muted); background: #2a2d3a; padding: 2px 8px; border-radius: 999px; }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  min-height: 100vh;
-  display: grid;
-  grid-template-rows: auto 1fr;
-}
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--card); }
+  .tab { padding: 0.75rem 1.5rem; cursor: pointer; font-size: 0.875rem; color: var(--muted); border-bottom: 2px solid transparent; transition: all .2s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 
-/* ── Header ─────────────────────────────────────────────────────────── */
-header {
-  border-bottom: 1px solid var(--border);
-  padding: 0 2rem;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface);
-}
-.logo {
-  font-family: var(--mono);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.logo-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%,100% { opacity:1; transform:scale(1); }
-  50%      { opacity:0.5; transform:scale(0.8); }
-}
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  font-size: 12px;
-  color: var(--muted);
-  font-family: var(--mono);
-}
-.status-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border2);
-  border-radius: 20px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  transition: all 0.3s;
-}
-.status-pill.active { border-color: var(--green); color: var(--green); }
-.status-pill.idle   { color: var(--muted); }
-.status-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
+  .main { padding: 1.25rem; max-width: 1600px; margin: 0 auto; }
 
-/* ── Main layout ─────────────────────────────────────────────────────── */
-main {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  height: calc(100vh - 56px);
-  overflow: hidden;
-}
+  /* ── Mode toggle ── */
+  .mode-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .mode-btn { padding: 0.5rem 1.25rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; font-size: 0.8rem; transition: all .2s; }
+  .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-/* ── Left panel ──────────────────────────────────────────────────────── */
-.panel {
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-.panel-section {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.section-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  text-transform: uppercase;
-  margin-bottom: 1rem;
-}
+  /* ── Cards ── */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+  .card-title { font-size: 0.7rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.75rem; }
 
-/* Upload zone */
-.drop-zone {
-  border: 1.5px dashed var(--border2);
-  border-radius: 8px;
-  padding: 2rem 1rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
-}
-.drop-zone:hover, .drop-zone.drag-over {
-  border-color: var(--accent);
-  background: rgba(59,130,246,0.05);
-}
-.drop-zone input[type=file] {
-  position: absolute; inset: 0; opacity: 0; cursor: pointer;
-}
-.drop-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  display: block;
-}
-.drop-text {
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-.drop-text strong { color: var(--text); font-weight: 500; }
-.file-chosen {
-  margin-top: 0.75rem;
-  padding: 8px 12px;
-  background: var(--surface2);
-  border-radius: 6px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--accent);
-  display: none;
-  word-break: break-all;
-}
+  /* ── Upload areas ── */
+  .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .upload-area { border: 2px dashed var(--border); border-radius: 10px; padding: 1.5rem; text-align: center; cursor: pointer; transition: border-color .2s; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; }
+  .upload-area:hover, .upload-area.drag { border-color: var(--accent); }
+  .upload-area.ready { border-color: var(--green); background: rgba(34,197,94,.06); }
+  .upload-area .icon { font-size: 2rem; }
+  .upload-area p { font-size: 0.8rem; color: var(--muted); }
+  .upload-area .filename { font-size: 0.8rem; color: var(--green); font-weight: 600; }
+  .door-badge { font-size: 0.65rem; font-weight: 700; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; margin-bottom: 0.25rem; }
+  .door-a { background: rgba(6,182,212,.15); color: var(--cyan); }
+  .door-b { background: rgba(245,158,11,.15); color: var(--amber); }
 
-/* Settings */
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-.setting-row:last-child { margin-bottom: 0; }
-.setting-label {
-  font-size: 13px;
-  color: var(--muted);
-}
-.setting-label span {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  opacity: 0.6;
-  font-family: var(--mono);
-  margin-top: 2px;
-}
-input[type=number], select {
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 6px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 6px 10px;
-  width: 90px;
-  text-align: right;
-}
-select { width: 130px; text-align: left; cursor: pointer; }
-input[type=number]:focus, select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
+  /* single upload */
+  .upload-single { margin-bottom: 1rem; }
 
+  /* ── Settings ── */
+  .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+  .field label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 4px; }
+  .field input[type=number], .field select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.4rem 0.5rem; font-size: 0.85rem; }
+  .field input[type=range] { width: 100%; accent-color: var(--accent); }
 
-/* Range slider */
-input[type=range] {
-  -webkit-appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border2);
-  outline: none;
-  margin: 8px 0 4px;
-}
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-}
-/* Mode selector */
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-.mode-btn {
-  padding: 8px 4px;
-  border: 1px solid var(--border2);
-  border-radius: 6px;
-  background: var(--surface2);
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s;
-}
-.mode-btn:hover { border-color: var(--accent); color: var(--text); }
-.mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,0.08); }
+  /* ── Buttons ── */
+  .btn { padding: 0.6rem 1.5rem; border-radius: 7px; border: none; cursor: pointer; font-weight: 600; font-size: 0.875rem; transition: all .18s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-danger:hover  { background: #dc2626; }
+  .btn-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
 
-/* Action buttons */
-.btn {
-  width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  border: none;
-  font-family: var(--mono);
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-bottom: 8px;
-}
-.btn:last-child { margin-bottom: 0; }
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-.btn-primary:hover { background: #2563eb; }
-.btn-primary:disabled { background: var(--border2); color: var(--muted); cursor: not-allowed; }
-.btn-secondary {
-  background: transparent;
-  color: var(--red);
-  border: 1px solid var(--red);
-}
-.btn-secondary:hover { background: rgba(239,68,68,0.08); }
-.btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* ── Video panels ── */
+  .video-grid { display: grid; gap: 1rem; margin-bottom: 1rem; }
+  .video-grid.single { grid-template-columns: 1fr; }
+  .video-grid.dual   { grid-template-columns: 1fr 1fr; }
+  .video-panel { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
+  .video-panel img { width: 100%; height: 100%; object-fit: contain; }
+  .video-panel .placeholder { color: var(--muted); font-size: 0.85rem; }
+  .door-label-overlay { position: absolute; top: 8px; left: 8px; font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
 
-/* Progress */
-.progress-wrap {
-  margin-top: 1rem;
-  display: none;
-}
-.progress-track {
-  height: 3px;
-  background: var(--border2);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-.progress-bar {
-  height: 100%;
-  background: var(--accent);
-  width: 0%;
-  transition: width 0.3s;
-  border-radius: 2px;
-}
-.progress-text {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted);
-  display: flex;
-  justify-content: space-between;
-}
+  /* ── Stats bar ── */
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center; }
+  .stat-card .val { font-size: 1.6rem; font-weight: 800; line-height: 1; }
+  .stat-card .lbl { font-size: 0.65rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
 
-/* Stat cards in panel */
-.stat-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.stat-card {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.stat-card.full { grid-column: 1 / -1; }
-.stat-card-label {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-.stat-card-value {
-  font-family: var(--mono);
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1;
-}
-.stat-card-value.green { color: var(--green); }
-.stat-card-value.amber { color: var(--amber); }
-.stat-card-value.red   { color: var(--red); }
-.stat-card-sub {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 4px;
-}
+  /* occupancy bar */
+  .occ-bar-wrap { margin-bottom: 1rem; }
+  .occ-bar-bg { background: var(--border); border-radius: 999px; height: 10px; overflow: hidden; }
+  .occ-bar-fill { height: 100%; border-radius: 999px; transition: width .4s, background .4s; }
+  .occ-label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 
-/* Capacity bar */
-.cap-bar-wrap { margin-top: 8px; }
-.cap-bar-track {
-  height: 6px;
-  background: var(--border2);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.cap-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: var(--green);
-  width: 0%;
-  transition: width 0.4s ease, background 0.4s;
-}
-.cap-bar-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted);
-}
+  /* progress bars per door */
+  .progress-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+  .progress-item label { font-size: 0.7rem; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .progress-bg { background: var(--border); border-radius: 999px; height: 6px; overflow: hidden; }
+  .progress-fill-a { height: 100%; background: var(--cyan); border-radius: 999px; width: 0%; transition: width .3s; }
+  .progress-fill-b { height: 100%; background: var(--amber); border-radius: 999px; width: 0%; transition: width .3s; }
 
-/* Density badge */
-.density-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  background: rgba(34,197,94,0.15);
-  color: var(--green);
-  border: 1px solid rgba(34,197,94,0.3);
-  margin-top: 8px;
-  transition: all 0.3s;
-}
+  /* ── Alert banner ── */
+  .alert-banner { border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-weight: 600; font-size: 0.875rem; display: none; }
+  .alert-banner.warning  { background: rgba(245,158,11,.15); border: 1px solid var(--amber); color: var(--amber); }
+  .alert-banner.critical { background: rgba(239,68,68,.15);  border: 1px solid var(--red);   color: var(--red); }
 
-/* ── Right content area ───────────────────────────────────────────────── */
-.content {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg);
-}
+  /* ── Chart ── */
+  .chart-wrap { position: relative; height: 220px; }
 
-/* Video area */
-.video-area {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-.video-placeholder {
-  text-align: center;
-  color: var(--muted);
-}
-.video-placeholder-icon {
-  font-size: 48px;
-  margin-bottom: 1rem;
-  opacity: 0.3;
-}
-.video-placeholder p { font-size: 14px; }
-#videoCanvas {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 4px;
-  display: none;
-}
-.fps-badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: rgba(0,0,0,0.6);
-  border: 1px solid var(--border2);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  display: none;
-}
+  /* ── Analytics ── */
+  .analytics-chart-wrap { position: relative; height: 300px; margin-top: 1rem; }
+  .summary-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 1rem; }
+  .summary-table th { color: var(--muted); text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .summary-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #1e2130; }
 
-/* Bottom metrics bar */
-.metrics-bar {
-  height: 120px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  divide-color: var(--border);
-}
-.metric {
-  padding: 1rem 1.25rem;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-.metric:last-child { border-right: none; }
-.metric-label {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-.metric-value {
-  font-family: var(--mono);
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1;
-}
-.metric-value.sm { font-size: 20px; }
-.metric-sub {
-  font-size: 11px;
-  color: var(--muted);
-}
+  /* ── Logs ── */
+  .log-list { list-style: none; }
+  .log-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .log-list a { color: var(--accent); text-decoration: none; }
 
-/* Scrolling log */
-.log-area {
-  height: 100%;
-  overflow-y: auto;
-  padding: 0.75rem;
-}
-.log-entry {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted);
-  padding: 3px 0;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-}
-.log-entry .log-time { color: var(--accent); min-width: 60px; }
-.log-entry .log-msg  { flex: 1; }
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-/* Toast */
-.toast {
-  position: fixed;
-  bottom: 2rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text);
-  z-index: 999;
-  opacity: 0;
-  transition: opacity 0.3s;
-  pointer-events: none;
-}
-.toast.show { opacity: 1; }
+  /* responsive */
+  @media (max-width: 700px) {
+    .upload-grid { grid-template-columns: 1fr; }
+    .video-grid.dual { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .progress-row { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">
-    <div class="logo-dot"></div>
-    BUS_OCCUPANCY_MONITOR
-  </div>
-  <div class="header-right">
-    <span id="modelStatus" style="color: var(--muted);">checking model...</span>
-    <div id="statusPill" class="status-pill idle">
-      <div class="status-dot"></div>
-      <span id="statusText">IDLE</span>
-    </div>
-  </div>
+  <span style="font-size:1.5rem">🚌</span>
+  <h1>BusOccupancy AI</h1>
+  <span id="modelBadge">DEMO</span>
 </header>
 
-<main>
+<div class="tabs">
+  <div class="tab active" data-panel="monitor">Monitor</div>
+  <div class="tab" data-panel="analytics">Peak Hour Analytics</div>
+  <div class="tab" data-panel="logs">Session Logs</div>
+</div>
 
-  <!-- ── Left Panel ─────────────────────────────────────────── -->
-  <aside class="panel">
+<!-- ══════════════════════ MONITOR TAB ══════════════════════ -->
+<div class="tab-panel active main" id="panel-monitor">
 
-    <div class="panel-section">
-      <div class="section-label">01 — Upload Video</div>
-      <div class="drop-zone" id="dropZone">
-        <input type="file" id="fileInput" accept="video/*">
-        <span class="drop-icon">📹</span>
-        <div class="drop-text">
-          <strong>Drop video here</strong><br>
-          or click to browse<br>
-          <span style="font-size:11px; font-family: var(--mono);">MP4 · MOV · AVI · MKV</span>
-        </div>
+  <!-- Mode selector -->
+  <div class="mode-toggle">
+    <button class="mode-btn active" data-mode="single">Single Camera</button>
+    <button class="mode-btn" data-mode="dual">Dual Door (2 cameras)</button>
+  </div>
+
+  <!-- ── SINGLE CAMERA UPLOAD ── -->
+  <div id="singleUploadSection">
+    <div class="upload-single card" style="margin-bottom:1rem;">
+      <div class="card-title">Upload Video</div>
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+        <div class="icon">📹</div>
+        <p>Click or drag a video file here</p>
       </div>
-      <div class="file-chosen" id="fileChosen"></div>
+      <input type="file" id="fileInput" accept="video/*" style="display:none"/>
     </div>
+  </div>
 
-    <div class="panel-section">
-      <div class="section-label">02 — Settings</div>
-      <div class="setting-row">
-        <div class="setting-label">
-          Bus capacity
-          <span>Max passengers</span>
+  <!-- ── DUAL CAMERA UPLOAD ── -->
+  <div id="dualUploadSection" style="display:none;">
+    <div class="upload-grid">
+      <div class="card">
+        <div class="card-title">Door A — Front Camera</div>
+        <div class="upload-area" id="uploadAreaA" onclick="document.getElementById('fileInputA').click()">
+          <div class="door-badge door-a">DOOR A</div>
+          <div class="icon">📹</div>
+          <p>Click or drag Door A video</p>
         </div>
-        <input type="number" id="capacityInput" value="60" min="1" max="500">
+        <input type="file" id="fileInputA" accept="video/*" style="display:none"/>
       </div>
-      <div class="setting-row" style="display:block">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div class="setting-label">
-            Counting line position
-            <span>% from top of frame</span>
-          </div>
-          <span id="lineRatioVal" style="font-family:var(--mono);font-size:12px;color:var(--accent);">55%</span>
+      <div class="card">
+        <div class="card-title">Door B — Rear Camera</div>
+        <div class="upload-area" id="uploadAreaB" onclick="document.getElementById('fileInputB').click()">
+          <div class="door-badge door-b">DOOR B</div>
+          <div class="icon">📹</div>
+          <p>Click or drag Door B video</p>
         </div>
-        <input type="range" id="lineRatioInput" min="20" max="90" value="55">
-      </div>
-    </div>
-
-    <div class="panel-section">
-      <div class="section-label">03 — Mode</div>
-      <div class="mode-grid">
-        <button class="mode-btn active" data-mode="live">LIVE<br>stream</button>
-        <button class="mode-btn" data-mode="count">COUNT<br>in/out</button>
-        <button class="mode-btn" data-mode="batch">BATCH<br>fast</button>
-      </div>
-      <div style="margin-top:10px; font-size:11px; color:var(--muted); line-height:1.5;" id="modeDesc">
-        Streams each frame with real-time detection overlay.
+        <input type="file" id="fileInputB" accept="video/*" style="display:none"/>
       </div>
     </div>
+  </div>
 
-    <div class="panel-section">
-      <div class="section-label">04 — Control</div>
-      <button class="btn btn-primary" id="startBtn" disabled>▶ START PROCESSING</button>
-      <button class="btn btn-secondary" id="stopBtn" disabled>■ STOP</button>
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-track">
-          <div class="progress-bar" id="progressBar"></div>
-        </div>
-        <div class="progress-text">
-          <span id="progressLabel">0%</span>
-          <span id="frameLabel">frame 0 / 0</span>
-        </div>
+  <!-- Settings -->
+  <div class="card" style="margin-bottom:1rem;">
+    <div class="card-title">Settings</div>
+    <div class="settings-grid">
+      <div class="field">
+        <label>Processing Mode</label>
+        <select id="procMode">
+          <option value="live">Live (every frame)</option>
+          <option value="batch">Batch (skip frames)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Bus Capacity</label>
+        <input type="number" id="capacity" value="60" min="1" max="500"/>
+      </div>
+      <div class="field">
+        <label>Initial passengers</label>
+        <input type="number" id="initialCount" value="0" min="0" max="500"/>
+      </div>
+      <div class="field" id="lineRatioField">
+        <label>Line position A: <span id="lineRatioVal">0.55</span></label>
+        <input type="range" id="lineRatio" min="0.1" max="0.9" step="0.01" value="0.55"
+               oninput="document.getElementById('lineRatioVal').textContent=this.value"/>
+      </div>
+      <div class="field" id="lineRatioBField" style="display:none;">
+        <label>Line position B: <span id="lineRatioBVal">0.35</span></label>
+        <input type="range" id="lineRatioB" min="0.1" max="0.9" step="0.01" value="0.35"
+               oninput="document.getElementById('lineRatioBVal').textContent=this.value"/>
       </div>
     </div>
+  </div>
 
-    <div class="panel-section" style="flex:1">
-      <div class="section-label">05 — Stats</div>
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-card-label">People now</div>
-          <div class="stat-card-value" id="statCount">—</div>
-          <div class="stat-card-sub">detected</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-card-label">Live FPS</div>
-          <div class="stat-card-value" id="statFps">—</div>
-          <div class="stat-card-sub">proc. rate</div>
-        </div>
-        <div class="stat-card full">
-          <div class="stat-card-label">Occupancy</div>
-          <div class="cap-bar-wrap">
-            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-              <span class="stat-card-value" id="statPct" style="font-size:22px;">—</span>
-              <div class="density-badge" id="densityBadge">—</div>
-            </div>
-            <div class="cap-bar-track">
-              <div class="cap-bar-fill" id="capBar"></div>
-            </div>
-            <div class="cap-bar-labels">
-              <span>0</span>
-              <span id="capMax">60</span>
-            </div>
-          </div>
-        </div>
-        <div class="stat-card" id="cardEntered" style="display:none">
-          <div class="stat-card-label">Entered</div>
-          <div class="stat-card-value green" id="statIn">0</div>
-        </div>
-        <div class="stat-card" id="cardExited" style="display:none">
-          <div class="stat-card-label">Exited</div>
-          <div class="stat-card-value red" id="statOut">0</div>
-        </div>
-      </div>
+  <!-- Controls -->
+  <div class="btn-row">
+    <button class="btn btn-primary" id="startBtn" disabled>▶ Start</button>
+    <button class="btn btn-danger"  id="stopBtn"  disabled>■ Stop</button>
+    <span id="statusText" style="font-size:0.8rem; color:var(--muted);">Upload a video to begin</span>
+  </div>
+
+  <!-- Alert -->
+  <div class="alert-banner" id="alertBanner"></div>
+
+  <!-- Video panels -->
+  <div class="video-grid single" id="videoGrid">
+    <div class="video-panel">
+      <img id="videoFeedA" src="" style="display:none"/>
+      <div class="placeholder" id="placeholderA">Waiting for stream…</div>
+      <div class="door-label-overlay door-a" id="doorLabelA" style="display:none;">DOOR A</div>
     </div>
-
-  </aside>
-
-  <!-- ── Right Content ──────────────────────────────────────── -->
-  <section class="content">
-    <div class="video-area">
-      <div class="video-placeholder" id="placeholder">
-        <div class="video-placeholder-icon">🚌</div>
-        <p>Upload a video to begin</p>
-      </div>
-      <canvas id="videoCanvas"></canvas>
-      <div class="fps-badge" id="fpsBadge">0 fps</div>
+    <div class="video-panel" id="panelB" style="display:none;">
+      <img id="videoFeedB" src="" style="display:none"/>
+      <div class="placeholder" id="placeholderB">Waiting for Door B stream…</div>
+      <div class="door-label-overlay door-b">DOOR B</div>
     </div>
+  </div>
 
-    <div class="metrics-bar">
-      <div class="metric">
-        <div class="metric-label">Current count</div>
-        <div class="metric-value" id="mCount">—</div>
-        <div class="metric-sub">people in bus</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Density</div>
-        <div class="metric-value sm" id="mDensity">—</div>
-        <div class="metric-sub" id="mPct">—% occupancy</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Capacity</div>
-        <div class="metric-value sm" id="mCap">60</div>
-        <div class="metric-sub">max seats</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Entered</div>
-        <div class="metric-value sm" id="mIn">—</div>
-        <div class="metric-sub">total boarded</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Exited</div>
-        <div class="metric-value sm" id="mOut">—</div>
-        <div class="metric-sub">total alighted</div>
-      </div>
+  <!-- Per-door progress (dual only) -->
+  <div class="progress-row" id="dualProgressRow" style="display:none;">
+    <div class="progress-item">
+      <label><span>Door A</span><span id="progressAText">0%</span></label>
+      <div class="progress-bg"><div class="progress-fill-a" id="progressA"></div></div>
     </div>
-  </section>
+    <div class="progress-item">
+      <label><span>Door B</span><span id="progressBText">0%</span></label>
+      <div class="progress-bg"><div class="progress-fill-b" id="progressB"></div></div>
+    </div>
+  </div>
 
-</main>
+  <!-- Stats -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card">
+      <div class="val" id="statCount" style="color:var(--cyan)">—</div>
+      <div class="lbl">Passengers</div>
+    </div>
+    <div class="stat-card">
+      <div class="val" id="statCapacity" style="color:var(--muted)">—</div>
+      <div class="lbl">Capacity</div>
+    </div>
+    <div class="stat-card">
+      <div class="val" id="statIn" style="color:var(--green)">—</div>
+      <div class="lbl">Total In</div>
+    </div>
+    <div class="stat-card">
+      <div class="val" id="statOut" style="color:var(--red)">—</div>
+      <div class="lbl">Total Out</div>
+    </div>
+    <div class="stat-card" id="statDoorACard" style="display:none;">
+      <div class="val" id="statDoorAIn" style="color:var(--cyan)">—</div>
+      <div class="lbl" style="color:var(--cyan)">Door A In</div>
+    </div>
+    <div class="stat-card" id="statDoorAOutCard" style="display:none;">
+      <div class="val" id="statDoorAOut" style="color:var(--cyan)">—</div>
+      <div class="lbl" style="color:var(--cyan)">Door A Out</div>
+    </div>
+    <div class="stat-card" id="statDoorBCard" style="display:none;">
+      <div class="val" id="statDoorBIn" style="color:var(--amber)">—</div>
+      <div class="lbl" style="color:var(--amber)">Door B In</div>
+    </div>
+    <div class="stat-card" id="statDoorBOutCard" style="display:none;">
+      <div class="val" id="statDoorBOut" style="color:var(--amber)">—</div>
+      <div class="lbl" style="color:var(--amber)">Door B Out</div>
+    </div>
+    <div class="stat-card">
+      <div class="val" id="statDensity" style="color:var(--green)">—</div>
+      <div class="lbl">Density</div>
+    </div>
+    <div class="stat-card">
+      <div class="val" id="statFps" style="color:var(--muted)">—</div>
+      <div class="lbl">FPS</div>
+    </div>
+  </div>
 
-<div class="toast" id="toast"></div>
+  <!-- Occupancy bar -->
+  <div class="occ-bar-wrap card">
+    <div class="card-title">Occupancy</div>
+    <div class="occ-bar-bg">
+      <div class="occ-bar-fill" id="occBar" style="width:0%;background:var(--green)"></div>
+    </div>
+    <div class="occ-label"><span id="occPct">0%</span> of capacity</div>
+  </div>
+
+  <!-- Live chart -->
+  <div class="card" style="margin-top:1rem;">
+    <div class="card-title">Live Occupancy Timeline</div>
+    <div class="chart-wrap"><canvas id="liveChart"></canvas></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ANALYTICS TAB ══════════════════════ -->
+<div class="tab-panel main" id="panel-analytics">
+  <div class="card">
+    <div class="card-title">Peak Hour Occupancy (all sessions)</div>
+    <button class="btn btn-primary" onclick="loadAnalytics()" style="margin-bottom:0.75rem;">Refresh</button>
+    <div class="analytics-chart-wrap"><canvas id="analyticsChart"></canvas></div>
+  </div>
+  <div class="card" style="margin-top:1rem;">
+    <div class="card-title">Session Summaries</div>
+    <table class="summary-table" id="summaryTable">
+      <thead><tr><th>File</th><th>Hour</th><th>Avg %</th><th>Max %</th><th>Rows</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════ LOGS TAB ══════════════════════ -->
+<div class="tab-panel main" id="panel-logs">
+  <div class="card">
+    <div class="card-title">Session Logs</div>
+    <button class="btn btn-primary" onclick="loadLogs()" style="margin-bottom:0.75rem;">Refresh</button>
+    <ul class="log-list" id="logList"></ul>
+  </div>
+</div>
 
 <script>
-const socket = io();
-let uploadedPath = null;
-let selectedMode = 'live';
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+    if (tab.dataset.panel === 'analytics') loadAnalytics();
+    if (tab.dataset.panel === 'logs') loadLogs();
+  });
+});
 
-// ── DOM refs ──────────────────────────────────────────────────────────────────
-const fileInput   = document.getElementById('fileInput');
-const dropZone    = document.getElementById('dropZone');
-const fileChosen  = document.getElementById('fileChosen');
-const startBtn    = document.getElementById('startBtn');
-const stopBtn     = document.getElementById('stopBtn');
-const progressWrap = document.getElementById('progressWrap');
-const progressBar = document.getElementById('progressBar');
-const progressLabel = document.getElementById('progressLabel');
-const frameLabel  = document.getElementById('frameLabel');
-const videoCanvas = document.getElementById('videoCanvas');
-const ctx         = videoCanvas.getContext('2d');
-const placeholder = document.getElementById('placeholder');
-const fpsBadge    = document.getElementById('fpsBadge');
-const statusPill  = document.getElementById('statusPill');
-const statusText  = document.getElementById('statusText');
-
-// Stats
-const statCount = document.getElementById('statCount');
-const statFps   = document.getElementById('statFps');
-const statPct   = document.getElementById('statPct');
-const capBar    = document.getElementById('capBar');
-const densityBadge = document.getElementById('densityBadge');
-const capMax    = document.getElementById('capMax');
-const mCount    = document.getElementById('mCount');
-const mDensity  = document.getElementById('mDensity');
-const mPct      = document.getElementById('mPct');
-const mCap      = document.getElementById('mCap');
-const mIn       = document.getElementById('mIn');
-const mOut      = document.getElementById('mOut');
-const statIn    = document.getElementById('statIn');
-const statOut   = document.getElementById('statOut');
-const cardEntered = document.getElementById('cardEntered');
-const cardExited  = document.getElementById('cardExited');
-
-// ── Mode buttons ──────────────────────────────────────────────────────────────
-const modeDescs = {
-  live:  'Streams each frame with real-time detection overlay.',
-  count: 'Uses entry/exit line counting — tracks who enters & exits the bus door.',
-  batch: 'Fast processing mode — skips frames for speed, streams snapshots.',
-};
+// ── Mode toggle ───────────────────────────────────────────────────────────
+let isDual = false;
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    selectedMode = btn.dataset.mode;
-    document.getElementById('modeDesc').textContent = modeDescs[selectedMode];
-    // Show entry/exit cards only for count mode
-    cardEntered.style.display = selectedMode === 'count' ? '' : 'none';
-    cardExited.style.display  = selectedMode === 'count' ? '' : 'none';
+    isDual = btn.dataset.mode === 'dual';
+    document.getElementById('singleUploadSection').style.display = isDual ? 'none' : '';
+    document.getElementById('dualUploadSection').style.display   = isDual ? ''     : 'none';
+    document.getElementById('lineRatioBField').style.display     = isDual ? ''     : 'none';
+    document.getElementById('lineRatioField').querySelector('label').firstChild.textContent =
+      isDual ? 'Line position A: ' : 'Line position: ';
+    // dual stat cards
+    ['statDoorACard','statDoorAOutCard','statDoorBCard','statDoorBOutCard'].forEach(id => {
+      document.getElementById(id).style.display = isDual ? '' : 'none';
+    });
+    document.getElementById('dualProgressRow').style.display = isDual ? '' : 'none';
+    const grid = document.getElementById('videoGrid');
+    const panelB = document.getElementById('panelB');
+    const labelA = document.getElementById('doorLabelA');
+    if (isDual) {
+      grid.classList.replace('single','dual');
+      panelB.style.display = '';
+      labelA.style.display = '';
+    } else {
+      grid.classList.replace('dual','single');
+      panelB.style.display = 'none';
+      labelA.style.display = 'none';
+    }
+    checkReady();
   });
 });
 
-// ── File upload ───────────────────────────────────────────────────────────────
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files[0]) uploadFile(fileInput.files[0]);
-});
+// ── File upload helpers ────────────────────────────────────────────────────
+let uploadedPath   = null;
+let uploadedPathA  = null;
+let uploadedPathB  = null;
 
-async function uploadFile(file) {
-  showToast('Uploading ' + file.name + '…');
-  fileChosen.textContent = '⏳ ' + file.name;
-  fileChosen.style.display = 'block';
-  startBtn.disabled = true;
-
+async function uploadFile(file, areaEl, labelEl) {
   const fd = new FormData();
   fd.append('video', file);
-  try {
-    const r = await fetch('/upload', { method: 'POST', body: fd });
-    const data = await r.json();
-    if (data.ok) {
-      uploadedPath = data.path;
-      fileChosen.textContent = '✓ ' + data.name;
-      startBtn.disabled = false;
-      showToast('Ready — ' + data.name);
-    } else {
-      showToast('Upload failed: ' + (data.error || 'unknown error'));
-    }
-  } catch (e) {
-    showToast('Upload error');
+  areaEl.querySelector('p').textContent = 'Uploading…';
+  const r = await fetch('/upload', { method: 'POST', body: fd });
+  const j = await r.json();
+  if (j.ok) {
+    areaEl.classList.add('ready');
+    areaEl.querySelector('p').textContent = '';
+    // show filename
+    let fn = areaEl.querySelector('.filename');
+    if (!fn) { fn = document.createElement('div'); fn.className = 'filename'; areaEl.appendChild(fn); }
+    fn.textContent = '✓ ' + j.name;
+    return j.path;
   }
+  areaEl.querySelector('p').textContent = 'Upload failed';
+  return null;
 }
 
-// ── Capacity input ────────────────────────────────────────────────────────────
-document.getElementById('capacityInput').addEventListener('change', function() {
-  const v = parseInt(this.value) || 60;
-  capMax.textContent = v;
-  mCap.textContent = v;
+// Single
+document.getElementById('fileInput').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  uploadedPath = await uploadFile(file, document.getElementById('uploadArea'), null);
+  checkReady();
+});
+setupDrop('uploadArea', async file => {
+  uploadedPath = await uploadFile(file, document.getElementById('uploadArea'), null);
+  checkReady();
 });
 
-
-// ── Line ratio slider ─────────────────────────────────────────────────────────
-const lineRatioInput = document.getElementById('lineRatioInput');
-const lineRatioVal   = document.getElementById('lineRatioVal');
-lineRatioInput.addEventListener('input', function() {
-  lineRatioVal.textContent = this.value + '%';
+// Dual A
+document.getElementById('fileInputA').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  uploadedPathA = await uploadFile(file, document.getElementById('uploadAreaA'), null);
+  checkReady();
 });
-// ── Start / Stop ──────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', () => {
-  if (!uploadedPath) return;
-  const capacity = parseInt(document.getElementById('capacityInput').value) || 60;
-  const line_ratio = parseInt(document.getElementById('lineRatioInput').value) / 100;
-  socket.emit('start_processing', {
-    path: uploadedPath,
-    mode: selectedMode,
-    capacity,
-    line_ratio,
+setupDrop('uploadAreaA', async file => {
+  uploadedPathA = await uploadFile(file, document.getElementById('uploadAreaA'), null);
+  checkReady();
+});
+
+// Dual B
+document.getElementById('fileInputB').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  uploadedPathB = await uploadFile(file, document.getElementById('uploadAreaB'), null);
+  checkReady();
+});
+setupDrop('uploadAreaB', async file => {
+  uploadedPathB = await uploadFile(file, document.getElementById('uploadAreaB'), null);
+  checkReady();
+});
+
+function setupDrop(id, cb) {
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag'); });
+  el.addEventListener('dragleave', () => el.classList.remove('drag'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('drag');
+    const f = e.dataTransfer.files[0]; if (f) cb(f);
   });
-  setStatus('active', 'RUNNING');
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  progressWrap.style.display = 'block';
-  placeholder.style.display = 'none';
-  videoCanvas.style.display = 'block';
-  fpsBadge.style.display = 'block';
+}
+
+function checkReady() {
+  const ok = isDual ? (uploadedPathA && uploadedPathB) : !!uploadedPath;
+  document.getElementById('startBtn').disabled = !ok;
+  if (!ok) setStatus(isDual ? 'Upload both door videos to begin' : 'Upload a video to begin');
+  else setStatus('Ready — press Start');
+}
+
+// ── Socket.IO ──────────────────────────────────────────────────────────────
+const socket = io();
+
+socket.on('connect', () => console.log('Socket connected'));
+
+socket.on('video_info', d => {
+  setStatus(`Video: ${d.width}×${d.height} @ ${d.fps} fps — ${d.total_frames} frames`);
+  document.getElementById('modelBadge').textContent = 'MODEL LOADED';
 });
 
-stopBtn.addEventListener('click', () => {
-  socket.emit('stop_processing', {});
-  setStatus('idle', 'STOPPING');
-});
-
-// ── Socket events ─────────────────────────────────────────────────────────────
-socket.on('video_info', data => {
-  frameLabel.textContent = `frame 0 / ${data.total_frames}`;
-});
-
-socket.on('frame_data', data => {
-  // Update progress
-  progressBar.style.width = data.progress + '%';
-  progressLabel.textContent = data.progress + '%';
-  frameLabel.textContent = `frame ${data.frame_idx} / ${data.total_frames}`;
-
-  // Draw frame if provided
-  if (data.frame) {
-    const img = new Image();
-    img.onload = () => {
-      videoCanvas.width = img.width;
-      videoCanvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-    };
-    img.src = 'data:image/jpeg;base64,' + data.frame;
+// Single-camera frames
+socket.on('frame_data', d => {
+  if (d.frame) {
+    const img = document.getElementById('videoFeedA');
+    img.src = 'data:image/jpeg;base64,' + d.frame;
+    img.style.display = '';
+    document.getElementById('placeholderA').style.display = 'none';
   }
-
-  // Update FPS badge
-  fpsBadge.textContent = data.fps + ' fps';
-  statFps.textContent = data.fps;
-
-  // Density color
-  const dc = data.density_color;
-  const dLabel = data.density;
-
-  // Panel stats
-  statCount.textContent = data.count;
-  statPct.textContent   = data.occupancy_pct + '%';
-  capBar.style.width    = data.occupancy_pct + '%';
-  capBar.style.background = dc;
-  densityBadge.textContent = dLabel;
-  densityBadge.style.color  = dc;
-  densityBadge.style.borderColor = dc + '55';
-  densityBadge.style.background  = dc + '20';
-  capMax.textContent = data.capacity;
-
-  if (data.mode === 'count') {
-    statIn.textContent  = data.in_count;
-    statOut.textContent = data.out_count;
-  }
-
-  // Bottom bar
-  mCount.textContent  = data.count;
-  mDensity.textContent = dLabel;
-  mDensity.style.color = dc;
-  mPct.textContent    = data.occupancy_pct + '% occupancy';
-  mCap.textContent    = data.capacity;
-  mIn.textContent     = data.in_count;
-  mOut.textContent    = data.out_count;
+  updateStats(d);
+  if (d.alert) showAlert(d.alert);
+  if (d.timeline) updateChart(d.timeline);
+  setStatus(`Frame ${d.frame_idx}/${d.total_frames} — ${d.progress}%`);
 });
 
-socket.on('done', data => {
-  setStatus('idle', 'DONE');
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  progressBar.style.width = '100%';
-  progressLabel.textContent = '100%';
-  showToast(`✓ Done — ${data.in_count} entered, ${data.out_count} exited`);
+// Dual-camera frames
+socket.on('dual_frame_data', d => {
+  if (d.frame_a) {
+    const img = document.getElementById('videoFeedA');
+    img.src = 'data:image/jpeg;base64,' + d.frame_a;
+    img.style.display = '';
+    document.getElementById('placeholderA').style.display = 'none';
+  }
+  if (d.frame_b) {
+    const img = document.getElementById('videoFeedB');
+    img.src = 'data:image/jpeg;base64,' + d.frame_b;
+    img.style.display = '';
+    document.getElementById('placeholderB').style.display = 'none';
+  }
+  // progress bars
+  document.getElementById('progressA').style.width = d.progress_a + '%';
+  document.getElementById('progressB').style.width = d.progress_b + '%';
+  document.getElementById('progressAText').textContent = d.progress_a + '%';
+  document.getElementById('progressBText').textContent = d.progress_b + '%';
+
+  updateStats(d);
+  if (d.alert) showAlert(d.alert);
+  if (d.timeline) updateChart(d.timeline);
+
+  const fps = d.fps_a !== undefined ? ((d.fps_a + d.fps_b) / 2).toFixed(1) : '—';
+  setStatus(`Door A: ${d.progress_a}% | Door B: ${d.progress_b}% | FPS ≈ ${fps}`);
+});
+
+socket.on('done', d => {
+  setStatus(`Done — In: ${d.in_count}, Out: ${d.out_count}, Final: ${d.final_count}`);
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled  = true;
+  if (d.timeline) updateChart(d.timeline);
 });
 
 socket.on('stopped', () => {
-  setStatus('idle', 'IDLE');
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
+  setStatus('Stopped'); 
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled  = true;
 });
 
-socket.on('error', data => {
-  showToast('Error: ' + data.msg);
-  setStatus('idle', 'ERROR');
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
+socket.on('error', d => { setStatus('Error: ' + d.msg); });
+
+// ── Start / Stop ───────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => {
+  liveChartData.labels = []; liveChartData.datasets[0].data = []; liveChart.update();
+  hideAlert();
+
+  const capacity      = parseInt(document.getElementById('capacity').value)      || 60;
+  const initialCount  = parseInt(document.getElementById('initialCount').value)  || 0;
+  const procMode      = document.getElementById('procMode').value;
+  const lineRatio     = parseFloat(document.getElementById('lineRatio').value);
+  const lineRatioB    = parseFloat(document.getElementById('lineRatioB').value);
+
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled  = false;
+
+  if (isDual) {
+    socket.emit('start_dual_processing', {
+      path_a: uploadedPathA, path_b: uploadedPathB,
+      mode: procMode, capacity, initial_count: initialCount,
+      line_ratio_a: lineRatio, line_ratio_b: lineRatioB,
+    });
+    setStatus('Starting dual-door processing…');
+  } else {
+    socket.emit('start_processing', {
+      path: uploadedPath, mode: procMode,
+      capacity, initial_count: initialCount, line_ratio: lineRatio,
+    });
+    setStatus('Starting…');
+  }
 });
 
-// Check if model file exists
-fetch('/').then(() => {
-  document.getElementById('modelStatus').textContent =
-    'model: best_new.pt';
+document.getElementById('stopBtn').addEventListener('click', () => {
+  socket.emit('stop_processing', {});
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function setStatus(state, label) {
-  statusPill.className = 'status-pill ' + state;
-  statusText.textContent = label;
+// ── Stats update ───────────────────────────────────────────────────────────
+function updateStats(d) {
+  document.getElementById('statCount').textContent    = d.count ?? '—';
+  document.getElementById('statCapacity').textContent = d.capacity ?? '—';
+  document.getElementById('statIn').textContent       = d.in_count ?? '—';
+  document.getElementById('statOut').textContent      = d.out_count ?? '—';
+  document.getElementById('statDensity').textContent  = d.density ?? '—';
+  document.getElementById('statDensity').style.color  = d.density_color ?? 'var(--text)';
+
+  const fps = d.fps ?? (d.fps_a !== undefined ? ((d.fps_a + d.fps_b)/2).toFixed(1) : '—');
+  document.getElementById('statFps').textContent = fps;
+
+  if (d.dual_door) {
+    document.getElementById('statDoorAIn').textContent  = d.door_a_in ?? '—';
+    document.getElementById('statDoorAOut').textContent = d.door_a_out ?? '—';
+    document.getElementById('statDoorBIn').textContent  = d.door_b_in ?? '—';
+    document.getElementById('statDoorBOut').textContent = d.door_b_out ?? '—';
+  }
+
+  const pct = d.occupancy_pct ?? 0;
+  document.getElementById('occBar').style.width      = Math.min(pct, 100) + '%';
+  document.getElementById('occBar').style.background = d.density_color ?? '#22c55e';
+  document.getElementById('occPct').textContent      = pct + '%';
 }
 
-let toastTimer;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+// ── Alert ──────────────────────────────────────────────────────────────────
+function showAlert(alert) {
+  const el = document.getElementById('alertBanner');
+  el.className = 'alert-banner ' + alert.level;
+  el.textContent = (alert.level === 'critical' ? '🚨 ' : '⚠️ ') + alert.msg;
+  el.style.display = '';
+}
+function hideAlert() {
+  document.getElementById('alertBanner').style.display = 'none';
+}
+
+// ── Status text ────────────────────────────────────────────────────────────
+function setStatus(msg) { document.getElementById('statusText').textContent = msg; }
+
+// ── Live chart ─────────────────────────────────────────────────────────────
+const liveChartData = {
+  labels: [],
+  datasets: [{
+    label: 'Occupancy %',
+    data: [],
+    borderColor: '#6366f1',
+    backgroundColor: 'rgba(99,102,241,.1)',
+    fill: true,
+    tension: 0.4,
+    pointRadius: 0,
+  }]
+};
+const liveChart = new Chart(document.getElementById('liveChart'), {
+  type: 'line',
+  data: liveChartData,
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    scales: {
+      x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: '#2a2d3a' } },
+      y: { min: 0, max: 100, ticks: { color: '#64748b', callback: v => v+'%' }, grid: { color: '#2a2d3a' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+
+function updateChart(tl) {
+  liveChartData.labels   = tl.map(p => p.t + 's');
+  liveChartData.datasets[0].data = tl.map(p => p.pct);
+  liveChart.update('none');
+}
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+let analyticsChart = null;
+async function loadAnalytics() {
+  const r = await fetch('/analytics');
+  const d = await r.json();
+  const hours = Array.from({length: 24}, (_, i) => i);
+  const avgs  = hours.map(h => d.hourly[h]?.avg_pct ?? null);
+  const maxs  = hours.map(h => d.hourly[h]?.max_pct ?? null);
+  const colors = avgs.map(v => {
+    if (v === null) return 'rgba(42,45,58,.5)';
+    if (v < 40) return 'rgba(34,197,94,.7)';
+    if (v < 70) return 'rgba(99,102,241,.7)';
+    if (v < 90) return 'rgba(245,158,11,.7)';
+    return 'rgba(239,68,68,.7)';
+  });
+  if (analyticsChart) analyticsChart.destroy();
+  analyticsChart = new Chart(document.getElementById('analyticsChart'), {
+    type: 'bar',
+    data: {
+      labels: hours.map(h => `${h}:00`),
+      datasets: [
+        { label: 'Avg %',  data: avgs,  backgroundColor: colors, borderRadius: 4 },
+        { label: 'Peak %', data: maxs,  backgroundColor: 'rgba(239,68,68,.3)', borderRadius: 4, type: 'line', fill: false, tension: 0.4, pointRadius: 3, borderColor: '#ef4444' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: '#2a2d3a' } },
+        y: { min: 0, max: 100, ticks: { color: '#64748b', callback: v => v+'%' }, grid: { color: '#2a2d3a' } }
+      },
+      plugins: { legend: { labels: { color: '#64748b' } } }
+    }
+  });
+  const tbody = document.querySelector('#summaryTable tbody');
+  tbody.innerHTML = '';
+  (d.summaries || []).forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.file}</td><td>${s.hour ?? '—'}</td><td>${s.avg_pct}%</td><td>${s.max_pct}%</td><td>${s.rows}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Logs ───────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const r = await fetch('/logs');
+  const d = await r.json();
+  const ul = document.getElementById('logList');
+  ul.innerHTML = '';
+  if (!d.logs.length) { ul.innerHTML = '<li style="color:var(--muted)">No logs yet</li>'; return; }
+  d.logs.forEach(f => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${f}</span> <a href="/logs/${f}" download>⬇ Download</a>`;
+    ul.appendChild(li);
+  });
 }
 </script>
 </body>
