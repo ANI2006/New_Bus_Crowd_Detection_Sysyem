@@ -6,39 +6,64 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 
 
 class SessionLogger:
+    """
+    Logs per-frame stats to a CSV file for later export/analysis.
+    Supports single-door and multi-door sessions.
+    Filename: <videoname>_YYYYMMDD_HHMMSS.csv
+    """
 
-    def __init__(self, video_name: str):
+    def __init__(self, video_name: str, door_count: int = 1):
         ts        = time.strftime("%Y%m%d_%H%M%S")
-        safe_name = os.path.splitext(os.path.basename(video_name))[0]
-        self.path = os.path.join(LOG_FOLDER, f"{safe_name}_{ts}.csv")
-        self._file   = open(self.path, "w", newline="")
-        self._writer = csv.writer(self._file)
+        safe_name = os.path.splitext(os.path.basename(str(video_name)))[0]
+        self.path       = os.path.join(LOG_FOLDER, f"{safe_name}_{ts}.csv")
+        self.door_count = door_count
+        self._file      = open(self.path, "w", newline="")
+        self._writer    = csv.writer(self._file)
+
+        # Base columns + per-door columns
+        door_cols = []
+        for i in range(door_count):
+            lbl = chr(65 + i)
+            door_cols += [f"door_{lbl}_in", f"door_{lbl}_out"]
+
         self._writer.writerow([
             "wall_time", "elapsed_s", "frame", "count",
-            "in_count", "out_count",
-            "door_a_in", "door_a_out",
-            "door_b_in", "door_b_out",
-            "occupancy_pct", "density"
+            "total_in", "total_out",
+            *door_cols,
+            "occupancy_pct", "density",
         ])
         self.start_time   = time.time()
-        self.session_hour = datetime.now().hour   # recorded at open time, used by analytics
+        self.session_hour = datetime.now().hour
 
-    def log(self, frame_idx, count, in_count, out_count, occupancy_pct, density,
-            door_a_in=0, door_a_out=0, door_b_in=0, door_b_out=0):
+    def log(self, frame_idx: int, count: int,
+            total_in: int, total_out: int,
+            occupancy_pct: int, density: str,
+            door_counts: list | None = None):
+        """
+        door_counts: list of (in, out) tuples, one per door.
+                     If None, logs zeros for all door columns.
+        """
         elapsed   = round(time.time() - self.start_time, 2)
         wall_time = datetime.now().strftime("%H:%M:%S")
+
+        door_vals = []
+        if door_counts:
+            for d_in, d_out in door_counts:
+                door_vals += [d_in, d_out]
+        else:
+            door_vals = [0, 0] * self.door_count
+
         self._writer.writerow([
             wall_time, elapsed, frame_idx, count,
-            in_count, out_count,
-            door_a_in, door_a_out,
-            door_b_in, door_b_out,
-            occupancy_pct, density
+            total_in, total_out,
+            *door_vals,
+            occupancy_pct, density,
         ])
 
     def close(self):
         self._file.close()
 
-    def summary(self, total_frames):
+    def summary(self, total_frames: int) -> dict:
         return {
             "log_file":     os.path.basename(self.path),
             "total_frames": total_frames,
@@ -46,17 +71,22 @@ class SessionLogger:
         }
 
 
-def analyze_logs():
+def analyze_logs() -> tuple[dict, list]:
     """
     Read all CSV logs and compute hourly occupancy patterns.
     Filename format: <videoname>_YYYYMMDD_HHMMSS.csv
-    The hour is in the LAST underscore-segment (HHMMSS), first 2 chars.
+    The hour is parsed from the last HHMMSS segment.
+
+    Returns:
+        hourly: dict  {0..23: {avg_pct, max_pct, sample_count}}
+        summaries: list of per-log dicts
     """
-    hourly = {h: {"total_pct": 0, "max_pct": 0, "samples": 0} for h in range(24)}
+    hourly = {h: {"total_pct": 0.0, "max_pct": 0.0, "samples": 0}
+              for h in range(24)}
     log_summaries = []
 
     if not os.path.isdir(LOG_FOLDER):
-        return hourly, log_summaries
+        return _build_result(hourly), log_summaries
 
     for fname in sorted(os.listdir(LOG_FOLDER)):
         if not fname.endswith(".csv"):
@@ -65,16 +95,16 @@ def analyze_logs():
         try:
             with open(fpath, newline="") as f:
                 reader = csv.DictReader(f)
-                rows = list(reader)
+                rows   = list(reader)
             if not rows:
                 continue
 
-
+            # Extract hour: last underscore-separated token is HHMMSS.csv
             hour = None
             try:
-                hhmmss = fname.rsplit("_", 1)[-1].replace(".csv", "")  
+                hhmmss = fname.rsplit("_", 1)[-1].replace(".csv", "")
                 if len(hhmmss) == 6 and hhmmss.isdigit():
-                    hour = int(hhmmss[:2])   # 23
+                    hour = int(hhmmss[:2])
             except Exception:
                 pass
 
@@ -101,6 +131,10 @@ def analyze_logs():
         except Exception:
             continue
 
+    return _build_result(hourly), log_summaries
+
+
+def _build_result(hourly: dict) -> dict:
     result = {}
     for h, data in hourly.items():
         if data["samples"] > 0:
@@ -111,5 +145,4 @@ def analyze_logs():
             }
         else:
             result[h] = {"avg_pct": None, "max_pct": None, "sample_count": 0}
-
-    return result, log_summaries
+    return result

@@ -1,694 +1,1180 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BusOccupancy AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-  :root {
-    --bg:      #0f1117;
-    --card:    #1a1d27;
-    --border:  #2a2d3a;
-    --accent:  #6366f1;
-    --cyan:    #06b6d4;
-    --amber:   #f59e0b;
-    --green:   #22c55e;
-    --red:     #ef4444;
-    --text:    #e2e8f0;
-    --muted:   #64748b;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #0a0b0d;
+  --surf:    #111318;
+  --surf2:   #181b22;
+  --border:  #1f2330;
+  --border2: #2a2f40;
+  --text:    #e8eaf0;
+  --muted:   #5a6070;
+  --accent:  #3b82f6;
+  --green:   #22c55e;
+  --amber:   #f59e0b;
+  --red:     #ef4444;
+  --cyan:    #06b6d4;
+  --mono:    'Space Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+}
+body { background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh;
+       display:grid; grid-template-rows:auto 1fr; overflow:hidden; }
 
-  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
-  header h1 { font-size: 1.25rem; font-weight: 700; }
-  header span { font-size: 0.75rem; color: var(--muted); background: #2a2d3a; padding: 2px 8px; border-radius: 999px; }
+/* ── Header ── */
+header { border-bottom:1px solid var(--border); padding:0 1.5rem; height:52px;
+         display:flex; align-items:center; justify-content:space-between; background:var(--surf); }
+.logo { font-family:var(--mono); font-size:12px; letter-spacing:.08em; display:flex; align-items:center; gap:8px; }
+.logo-dot { width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+.status-pill { display:flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--border2);
+               border-radius:20px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;transition:all .3s; }
+.status-pill.active { border-color:var(--green);color:var(--green); }
+.status-pill.idle   { color:var(--muted); }
+.status-dot { width:5px;height:5px;border-radius:50%;background:currentColor; }
 
-  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--card); }
-  .tab { padding: 0.75rem 1.5rem; cursor: pointer; font-size: 0.875rem; color: var(--muted); border-bottom: 2px solid transparent; transition: all .2s; }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
+/* ── Layout ── */
+main { display:grid; grid-template-columns:300px 1fr; height:calc(100vh - 52px); overflow:hidden; }
 
-  .main { padding: 1.25rem; max-width: 1600px; margin: 0 auto; }
+/* ── Panel ── */
+.panel { background:var(--surf);border-right:1px solid var(--border);
+         display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden; }
+.panel-section { padding:.85rem 1rem; border-bottom:1px solid var(--border); }
+.sec-label { font-family:var(--mono);font-size:9px;letter-spacing:.12em;color:var(--muted);
+             text-transform:uppercase;margin-bottom:.65rem; }
 
-  /* ── Mode toggle ── */
-  .mode-toggle { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-  .mode-btn { padding: 0.5rem 1.25rem; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; font-size: 0.8rem; transition: all .2s; }
-  .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Mode tabs (Single / Multi) */
+.mode-tab-bar { display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:.75rem; }
+.mode-tab { padding:7px;border:1px solid var(--border2);border-radius:6px;background:var(--surf2);
+            color:var(--muted);font-family:var(--mono);font-size:10px;cursor:pointer;text-align:center;transition:all .15s; }
+.mode-tab.active { border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.1); }
+.mode-pane { display:none; }
+.mode-pane.active { display:block; }
 
-  /* ── Cards ── */
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
-  .card-title { font-size: 0.7rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.75rem; }
+/* Drop zones */
+.drop-zone { border:1.5px dashed var(--border2);border-radius:7px;padding:1rem .8rem;
+             text-align:center;cursor:pointer;transition:all .2s;position:relative; }
+.drop-zone:hover,.drop-zone.drag-over { border-color:var(--accent);background:rgba(59,130,246,.05); }
+.drop-zone input { position:absolute;inset:0;opacity:0;cursor:pointer; }
+.drop-icon { font-size:1.4rem;display:block;margin-bottom:.25rem; }
+.drop-text { font-size:11px;color:var(--muted);line-height:1.5; }
+.file-tag { margin-top:.4rem;padding:4px 8px;background:var(--surf2);border-radius:5px;
+            font-family:var(--mono);font-size:10px;color:var(--accent);display:none;word-break:break-all; }
 
-  /* ── Upload areas ── */
-  .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
-  .upload-area { border: 2px dashed var(--border); border-radius: 10px; padding: 1.5rem; text-align: center; cursor: pointer; transition: border-color .2s; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; }
-  .upload-area:hover, .upload-area.drag { border-color: var(--accent); }
-  .upload-area.ready { border-color: var(--green); background: rgba(34,197,94,.06); }
-  .upload-area .icon { font-size: 2rem; }
-  .upload-area p { font-size: 0.8rem; color: var(--muted); }
-  .upload-area .filename { font-size: 0.8rem; color: var(--green); font-weight: 600; }
-  .door-badge { font-size: 0.65rem; font-weight: 700; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; margin-bottom: 0.25rem; }
-  .door-a { background: rgba(6,182,212,.15); color: var(--cyan); }
-  .door-b { background: rgba(245,158,11,.15); color: var(--amber); }
+/* Door list (multi) */
+.door-list { display:flex;flex-direction:column;gap:6px;margin-bottom:.6rem; }
+.door-entry { background:var(--surf2);border:1px solid var(--border2);border-radius:7px;padding:.6rem .7rem; }
+.door-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem; }
+.door-badge { font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px; }
+.door-del { background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px 5px; }
+.door-del:hover { color:var(--red); }
+.door-file-label { font-size:10px;color:var(--muted);font-family:var(--mono);
+                   overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.door-slider-row { display:flex;align-items:center;gap:6px;margin-top:.35rem; }
+.door-slider-row label { font-size:9px;color:var(--muted);white-space:nowrap; }
+.door-slider-row input[type=range] { flex:1; }
+.door-slider-val { font-family:var(--mono);font-size:10px;color:var(--accent);width:30px;text-align:right; }
+.quick-btns { display:flex;gap:4px;flex-wrap:wrap;margin-bottom:.5rem; }
+.quick-btn { padding:4px 8px;border:1px solid var(--border2);border-radius:5px;background:var(--surf2);
+             color:var(--muted);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s; }
+.quick-btn:hover { border-color:var(--cyan);color:var(--cyan); }
+.add-door-btn { width:100%;padding:6px;border:1px dashed var(--border2);border-radius:6px;background:none;
+                color:var(--muted);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s; }
+.add-door-btn:hover { border-color:var(--accent);color:var(--accent); }
 
-  /* single upload */
-  .upload-single { margin-bottom: 1rem; }
+/* Settings inputs */
+.setting-row { display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem; }
+.setting-row:last-child { margin-bottom:0; }
+.setting-row.block { display:block; }
+.s-label { font-size:12px;color:var(--muted); }
+.s-label span { display:block;font-size:10px;font-family:var(--mono);color:var(--muted);opacity:.6;margin-top:1px; }
+input[type=number],select { background:var(--surf2);border:1px solid var(--border2);border-radius:5px;
+  color:var(--text);font-family:var(--mono);font-size:12px;padding:5px 8px;width:80px;text-align:right; }
+input[type=number]:focus,select:focus { outline:none;border-color:var(--accent); }
+input[type=range] { -webkit-appearance:none;width:100%;height:3px;border-radius:2px;
+  background:var(--border2);outline:none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--accent);cursor:pointer; }
+.slider-row { display:flex;justify-content:space-between;margin-bottom:.1rem; }
+.slider-val { font-family:var(--mono);font-size:11px;color:var(--accent); }
 
-  /* ── Settings ── */
-  .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
-  .field label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 4px; }
-  .field input[type=number], .field select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 0.4rem 0.5rem; font-size: 0.85rem; }
-  .field input[type=range] { width: 100%; accent-color: var(--accent); }
+/* Process mode buttons */
+.proc-mode-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:4px; }
+.proc-mode-btn { padding:6px 2px;border:1px solid var(--border2);border-radius:6px;background:var(--surf2);
+  color:var(--muted);font-family:var(--mono);font-size:9px;cursor:pointer;text-align:center;transition:all .15s; }
+.proc-mode-btn.active { border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.08); }
+.mode-hint { margin-top:6px;font-size:10px;color:var(--muted);line-height:1.5; }
 
-  /* ── Buttons ── */
-  .btn { padding: 0.6rem 1.5rem; border-radius: 7px; border: none; cursor: pointer; font-weight: 600; font-size: 0.875rem; transition: all .18s; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: #4f46e5; }
-  .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-  .btn-danger  { background: var(--red); color: #fff; }
-  .btn-danger:hover  { background: #dc2626; }
-  .btn-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+/* Control buttons */
+.btn { width:100%;padding:9px;border-radius:7px;border:none;font-family:var(--mono);
+       font-size:12px;letter-spacing:.05em;cursor:pointer;transition:all .2s;margin-bottom:5px; }
+.btn:last-child { margin-bottom:0; }
+.btn-primary { background:var(--accent);color:#fff; }
+.btn-primary:hover:not(:disabled) { background:#2563eb; }
+.btn-primary:disabled { background:var(--border2);color:var(--muted);cursor:not-allowed; }
+.btn-ghost { background:transparent;color:var(--muted);border:1px solid var(--border2); }
+.btn-ghost:hover:not(:disabled) { border-color:var(--amber);color:var(--amber); }
+.btn-ghost:disabled { opacity:.4;cursor:not-allowed; }
+.btn-danger { background:transparent;color:var(--red);border:1px solid var(--red); }
+.btn-danger:hover:not(:disabled) { background:rgba(239,68,68,.08); }
+.btn-danger:disabled { opacity:.4;cursor:not-allowed; }
+.btn-row { display:grid;grid-template-columns:1fr 1fr;gap:5px; }
 
-  /* ── Video panels ── */
-  .video-grid { display: grid; gap: 1rem; margin-bottom: 1rem; }
-  .video-grid.single { grid-template-columns: 1fr; }
-  .video-grid.dual   { grid-template-columns: 1fr 1fr; }
-  .video-panel { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
-  .video-panel img { width: 100%; height: 100%; object-fit: contain; }
-  .video-panel .placeholder { color: var(--muted); font-size: 0.85rem; }
-  .door-label-overlay { position: absolute; top: 8px; left: 8px; font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+/* Progress */
+.prog-wrap { margin-top:.6rem;display:none; }
+.prog-track { height:2px;background:var(--border2);border-radius:1px;overflow:hidden;margin-bottom:4px; }
+.prog-bar { height:100%;background:var(--accent);width:0%;transition:width .3s; }
+.prog-text { display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted); }
 
-  /* ── Stats bar ── */
-  .stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
-  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; text-align: center; }
-  .stat-card .val { font-size: 1.6rem; font-weight: 800; line-height: 1; }
-  .stat-card .lbl { font-size: 0.65rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .06em; }
+/* Stats */
+.stat-grid { display:grid;grid-template-columns:1fr 1fr;gap:5px; }
+.stat-card { background:var(--surf2);border:1px solid var(--border);border-radius:7px;padding:8px; }
+.stat-card.full { grid-column:1/-1; }
+.sc-label { font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:2px; }
+.sc-val { font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text);line-height:1; }
+.sc-val.green { color:var(--green); }
+.sc-val.red   { color:var(--red); }
+.sc-sub { font-size:10px;color:var(--muted);margin-top:2px; }
+.cap-track { height:5px;background:var(--border2);border-radius:3px;overflow:hidden;margin-top:4px; }
+.cap-fill  { height:100%;border-radius:3px;background:var(--green);width:0%;transition:width .4s,background .4s; }
+.cap-labels { display:flex;justify-content:space-between;margin-top:2px;font-family:var(--mono);font-size:9px;color:var(--muted); }
+.density-badge { display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.07em;margin-top:4px;
+  background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3);transition:all .3s; }
 
-  /* occupancy bar */
-  .occ-bar-wrap { margin-bottom: 1rem; }
-  .occ-bar-bg { background: var(--border); border-radius: 999px; height: 10px; overflow: hidden; }
-  .occ-bar-fill { height: 100%; border-radius: 999px; transition: width .4s, background .4s; }
-  .occ-label { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+/* Door breakdown strip */
+.door-strip { display:grid;gap:4px;margin-top:5px; }
+.door-strip-card { background:var(--surf2);border-radius:6px;padding:6px 8px;
+                   border-left:2px solid var(--cyan);display:flex;
+                   justify-content:space-between;align-items:center; }
+.door-strip-label { font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--muted); }
+.door-strip-nums { display:flex;gap:10px;font-family:var(--mono);font-size:11px; }
+.door-strip-nums .in  { color:var(--green); }
+.door-strip-nums .out { color:var(--red); }
 
-  /* progress bars per door */
-  .progress-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
-  .progress-item label { font-size: 0.7rem; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 3px; }
-  .progress-bg { background: var(--border); border-radius: 999px; height: 6px; overflow: hidden; }
-  .progress-fill-a { height: 100%; background: var(--cyan); border-radius: 999px; width: 0%; transition: width .3s; }
-  .progress-fill-b { height: 100%; background: var(--amber); border-radius: 999px; width: 0%; transition: width .3s; }
+/* Logs */
+.log-list { max-height:90px;overflow-y:auto; }
+.log-item { display:flex;align-items:center;justify-content:space-between;padding:4px 0;
+            border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;color:var(--muted); }
+.log-item:last-child { border-bottom:none; }
+.log-dl { color:var(--accent);cursor:pointer;text-decoration:none;font-size:9px; }
+.log-dl:hover { color:var(--text); }
+.no-logs { font-size:10px;color:var(--muted);text-align:center;padding:.35rem 0; }
 
-  /* ── Alert banner ── */
-  .alert-banner { border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-weight: 600; font-size: 0.875rem; display: none; }
-  .alert-banner.warning  { background: rgba(245,158,11,.15); border: 1px solid var(--amber); color: var(--amber); }
-  .alert-banner.critical { background: rgba(239,68,68,.15);  border: 1px solid var(--red);   color: var(--red); }
+/* Scrollbar */
+::-webkit-scrollbar { width:3px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border2);border-radius:2px; }
 
-  /* ── Chart ── */
-  .chart-wrap { position: relative; height: 220px; }
+/* ── Content ── */
+.content { display:flex;flex-direction:column;overflow:hidden;background:var(--bg); }
 
-  /* ── Analytics ── */
-  .analytics-chart-wrap { position: relative; height: 300px; margin-top: 1rem; }
-  .summary-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 1rem; }
-  .summary-table th { color: var(--muted); text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-  .summary-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #1e2130; }
+/* Video area */
+.video-area { flex:1;display:flex;align-items:center;justify-content:center;
+              position:relative;overflow:hidden;min-height:0; }
+.placeholder { text-align:center;color:var(--muted); }
+.placeholder-icon { font-size:36px;opacity:.2;margin-bottom:.6rem; }
+.placeholder p { font-size:12px; }
+#videoCanvas { max-width:100%;max-height:100%;border-radius:3px;display:none; }
+.fps-badge { position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);
+             border:1px solid var(--border2);border-radius:4px;padding:3px 7px;
+             font-family:var(--mono);font-size:10px;color:var(--muted);display:none; }
 
-  /* ── Logs ── */
-  .log-list { list-style: none; }
-  .log-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
-  .log-list a { color: var(--accent); text-decoration: none; }
+/* Multi-door video grid */
+.multi-video-grid { width:100%;height:100%;display:grid;gap:4px;padding:4px;overflow:hidden; }
+.door-video-card { background:var(--surf);border:1px solid var(--border);border-radius:6px;
+                   display:flex;flex-direction:column;overflow:hidden;min-height:0; }
+.door-video-header { padding:3px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0; }
+.door-video-label { font-family:var(--mono);font-size:9px;letter-spacing:.1em; }
+.door-video-fps { font-family:var(--mono);font-size:9px;color:var(--muted); }
+.door-video-canvas { width:100%;flex:1;object-fit:contain;display:block;min-height:0; }
 
-  /* responsive */
-  @media (max-width: 700px) {
-    .upload-grid { grid-template-columns: 1fr; }
-    .video-grid.dual { grid-template-columns: 1fr; }
-    .stats-row { grid-template-columns: repeat(2, 1fr); }
-    .progress-row { grid-template-columns: 1fr; }
-  }
+/* Alert */
+.alert-banner { position:absolute;top:10px;left:50%;transform:translateX(-50%);border-radius:8px;
+  padding:8px 20px;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.05em;
+  display:none;animation:slidein .3s ease;z-index:10;white-space:nowrap; }
+.alert-banner.warning  { background:rgba(245,158,11,.2);border:1px solid var(--amber);color:var(--amber); }
+.alert-banner.critical { background:rgba(239,68,68,.2);border:1px solid var(--red);color:var(--red); }
+@keyframes slidein { from{opacity:0;transform:translateX(-50%) translateY(-10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+/* Bottom tabs */
+.bottom-area { height:165px;background:var(--surf);border-top:1px solid var(--border);
+               display:flex;flex-direction:column;flex-shrink:0; }
+.tab-bar { display:flex;border-bottom:1px solid var(--border);height:32px;flex-shrink:0; }
+.tab { padding:0 1rem;font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted);
+       cursor:pointer;display:flex;align-items:center;border-bottom:2px solid transparent;
+       transition:all .15s;white-space:nowrap; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent);border-bottom-color:var(--accent); }
+.tab-content { flex:1;overflow:hidden;position:relative; }
+.tab-pane { position:absolute;inset:0;display:none;overflow:hidden; }
+.tab-pane.active { display:block; }
+
+/* Metrics */
+.metrics { display:grid;grid-template-columns:repeat(6,1fr);height:100%; }
+.metric { padding:.65rem .8rem;border-right:1px solid var(--border);
+          display:flex;flex-direction:column;justify-content:space-between; }
+.metric:last-child { border-right:none; }
+.m-label { font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase; }
+.m-val { font-family:var(--mono);font-size:24px;font-weight:700;color:var(--text);line-height:1; }
+.m-val.sm { font-size:16px; }
+.m-val.green { color:var(--green); }
+.m-val.red   { color:var(--red); }
+.m-sub { font-size:10px;color:var(--muted); }
+
+/* Chart pane */
+.chart-wrap { padding:.4rem .8rem;height:100%;display:flex;align-items:center; }
+#timelineChart { max-height:100%; }
+
+/* Analytics pane */
+.analytics-wrap { padding:.5rem .8rem;height:100%;display:flex;gap:.8rem;align-items:stretch;overflow:hidden; }
+.hourly-chart-wrap { flex:1;position:relative; }
+/* hourlyChart renamed to hourlyChartFull */
+.peak-info { width:170px;display:flex;flex-direction:column;gap:5px;justify-content:center; }
+.peak-card { background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:7px 9px; }
+.pk-label { font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:2px; }
+.pk-val { font-family:var(--mono);font-size:15px;font-weight:700;color:var(--amber); }
+.pk-sub { font-size:10px;color:var(--muted);margin-top:1px; }
+.no-analytics { display:flex;align-items:center;justify-content:center;height:100%;
+                font-family:var(--mono);font-size:11px;color:var(--muted); }
+
+/* Analytics full-screen view */
+#analyticsFullView { background: var(--bg); }
+#analyticsFullView .peak-card { border:1px solid var(--border); border-radius:7px; padding:8px 10px; }
+
+/* Toast */
+.toast { position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--surf2);
+         border:1px solid var(--border2);border-radius:8px;padding:8px 16px;font-family:var(--mono);
+         font-size:11px;color:var(--text);z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap; }
+.toast.show { opacity:1; }
 </style>
 </head>
 <body>
 
 <header>
-  <span style="font-size:1.5rem">🚌</span>
-  <h1>BusOccupancy AI</h1>
-  <span id="modelBadge">DEMO</span>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    BUSOCCUPANCY_AI
+  </div>
+  <div style="display:flex;align-items:center;gap:1rem">
+    <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">best_new.pt</span>
+    <div id="statusPill" class="status-pill idle">
+      <div class="status-dot"></div>
+      <span id="statusText">IDLE</span>
+    </div>
+  </div>
 </header>
 
-<div class="tabs">
-  <div class="tab active" data-panel="monitor">Monitor</div>
-  <div class="tab" data-panel="analytics">Peak Hour Analytics</div>
-  <div class="tab" data-panel="logs">Session Logs</div>
-</div>
+<main>
+<!-- ── Left Panel ── -->
+<aside class="panel">
 
-<!-- ══════════════════════ MONITOR TAB ══════════════════════ -->
-<div class="tab-panel active main" id="panel-monitor">
-
-  <!-- Mode selector -->
-  <div class="mode-toggle">
-    <button class="mode-btn active" data-mode="single">Single Camera</button>
-    <button class="mode-btn" data-mode="dual">Dual Door (2 cameras)</button>
-  </div>
-
-  <!-- ── SINGLE CAMERA UPLOAD ── -->
-  <div id="singleUploadSection">
-    <div class="upload-single card" style="margin-bottom:1rem;">
-      <div class="card-title">Upload Video</div>
-      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
-        <div class="icon">📹</div>
-        <p>Click or drag a video file here</p>
-      </div>
-      <input type="file" id="fileInput" accept="video/*" style="display:none"/>
+  <!-- 01 Input mode (single / multi / analytics) -->
+  <div class="panel-section">
+    <div class="sec-label">01 — Input Mode</div>
+    <div class="mode-tab-bar" style="grid-template-columns:1fr 1fr 1fr">
+      <button class="mode-tab active" id="tabSingle"    onclick="switchInputMode('single')">🚪 Single</button>
+      <button class="mode-tab"        id="tabMulti"     onclick="switchInputMode('multi')">🚪🚪 Multi</button>
+      <button class="mode-tab"        id="tabAnalytics" onclick="switchInputMode('analytics')">📊 Analytics</button>
     </div>
-  </div>
 
-  <!-- ── DUAL CAMERA UPLOAD ── -->
-  <div id="dualUploadSection" style="display:none;">
-    <div class="upload-grid">
-      <div class="card">
-        <div class="card-title">Door A — Front Camera</div>
-        <div class="upload-area" id="uploadAreaA" onclick="document.getElementById('fileInputA').click()">
-          <div class="door-badge door-a">DOOR A</div>
-          <div class="icon">📹</div>
-          <p>Click or drag Door A video</p>
+    <!-- Single door upload -->
+    <div class="mode-pane active" id="paneSingle">
+      <div class="drop-zone" id="dropZoneSingle">
+        <input type="file" id="fileInputSingle" accept="video/*">
+        <span class="drop-icon">📹</span>
+        <div class="drop-text"><strong>Drop video here</strong><br>or click to browse</div>
+      </div>
+      <div class="file-tag" id="fileTagSingle"></div>
+      <div class="setting-row block" style="margin-top:.6rem">
+        <div class="slider-row">
+          <div class="s-label">Counting line<span>% from top</span></div>
+          <span class="slider-val" id="lineVal">55%</span>
         </div>
-        <input type="file" id="fileInputA" accept="video/*" style="display:none"/>
+        <input type="range" id="lineInput" min="20" max="90" value="55">
       </div>
-      <div class="card">
-        <div class="card-title">Door B — Rear Camera</div>
-        <div class="upload-area" id="uploadAreaB" onclick="document.getElementById('fileInputB').click()">
-          <div class="door-badge door-b">DOOR B</div>
-          <div class="icon">📹</div>
-          <p>Click or drag Door B video</p>
+    </div>
+
+    <!-- Multi door -->
+    <div class="mode-pane" id="paneMulti">
+      <div style="display:flex;gap:4px;align-items:center;margin-bottom:.5rem">
+        <span style="font-size:11px;color:var(--muted)">Quick set:</span>
+        <div class="quick-btns">
+          <button class="quick-btn" onclick="setDoorCount(2)">2</button>
+          <button class="quick-btn" onclick="setDoorCount(3)">3</button>
+          <button class="quick-btn" onclick="setDoorCount(4)">4</button>
+          <button class="quick-btn" onclick="setDoorCount(6)">6</button>
+          <button class="quick-btn" onclick="setDoorCount(8)">8</button>
         </div>
-        <input type="file" id="fileInputB" accept="video/*" style="display:none"/>
+      </div>
+      <div class="door-list" id="doorList"></div>
+      <button class="add-door-btn" onclick="addDoor()">+ Add Door</button>
+    </div>
+
+    <!-- Analytics pane (shown in panel when tab = analytics) -->
+    <div class="mode-pane" id="paneAnalytics">
+      <div style="font-size:10px;color:var(--muted);line-height:1.6;margin-bottom:.65rem">
+        Combines all saved CSV sessions — single-door and multi-door — into a 24-hour occupancy heatmap.<br>
+        Run at least one session to generate data.
+      </div>
+      <button class="btn btn-ghost" style="font-size:10px;margin-bottom:0" onclick="loadAnalyticsFull()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- 02 Settings -->
+  <div class="panel-section" id="panelSettings">
+    <div class="sec-label">02 — Settings</div>
+    <div class="setting-row">
+      <div class="s-label">Capacity<span>max passengers</span></div>
+      <input type="number" id="capacityInput" value="60" min="1" max="500">
+    </div>
+    <div class="setting-row">
+      <div class="s-label">Starting passengers<span>already on board</span></div>
+      <input type="number" id="initialCountInput" value="0" min="0" max="500">
+    </div>
+  </div>
+
+  <!-- 03 Processing mode -->
+  <div class="panel-section" id="panelProcMode">
+    <div class="sec-label">03 — Processing Mode</div>
+    <div class="proc-mode-grid">
+      <button class="proc-mode-btn active" data-mode="live">LIVE<br>stream</button>
+      <button class="proc-mode-btn" data-mode="count">COUNT<br>in/out</button>
+      <button class="proc-mode-btn" data-mode="batch">BATCH<br>fast</button>
+    </div>
+    <div class="mode-hint" id="modeHint">Streams every frame with real-time detection overlay.</div>
+  </div>
+
+  <!-- 04 Control -->
+  <div class="panel-section" id="panelControl">
+    <div class="sec-label">04 — Control</div>
+    <button class="btn btn-primary" id="startBtn" disabled>▶ START</button>
+    <div class="btn-row">
+      <button class="btn btn-ghost"  id="pauseBtn" disabled>⏸ PAUSE</button>
+      <button class="btn btn-danger" id="stopBtn"  disabled>■ STOP</button>
+    </div>
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-track"><div class="prog-bar" id="progBar"></div></div>
+      <div class="prog-text">
+        <span id="progLabel">0%</span>
+        <span id="frameLabel">—</span>
       </div>
     </div>
   </div>
 
-  <!-- Settings -->
-  <div class="card" style="margin-bottom:1rem;">
-    <div class="card-title">Settings</div>
-    <div class="settings-grid">
-      <div class="field">
-        <label>Processing Mode</label>
-        <select id="procMode">
-          <option value="live">Live (every frame)</option>
-          <option value="batch">Batch (skip frames)</option>
-        </select>
+  <!-- 05 Live stats -->
+  <div class="panel-section" id="panelStats">
+    <div class="sec-label">05 — Live Stats</div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="sc-label">People</div>
+        <div class="sc-val" id="sCount">—</div>
+        <div class="sc-sub">in bus now</div>
       </div>
-      <div class="field">
-        <label>Bus Capacity</label>
-        <input type="number" id="capacity" value="60" min="1" max="500"/>
+      <div class="stat-card">
+        <div class="sc-label">FPS</div>
+        <div class="sc-val" id="sFps">—</div>
+        <div class="sc-sub">proc. rate</div>
       </div>
-      <div class="field">
-        <label>Initial passengers</label>
-        <input type="number" id="initialCount" value="0" min="0" max="500"/>
-      </div>
-      <div class="field" id="lineRatioField">
-        <label>Line position A: <span id="lineRatioVal">0.55</span></label>
-        <input type="range" id="lineRatio" min="0.1" max="0.9" step="0.01" value="0.55"
-               oninput="document.getElementById('lineRatioVal').textContent=this.value"/>
-      </div>
-      <div class="field" id="lineRatioBField" style="display:none;">
-        <label>Line position B: <span id="lineRatioBVal">0.35</span></label>
-        <input type="range" id="lineRatioB" min="0.1" max="0.9" step="0.01" value="0.35"
-               oninput="document.getElementById('lineRatioBVal').textContent=this.value"/>
+      <div class="stat-card full">
+        <div class="sc-label">Occupancy</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="sc-val" id="sPct" style="font-size:17px">—</span>
+          <div class="density-badge" id="densityBadge">—</div>
+        </div>
+        <div class="cap-track"><div class="cap-fill" id="capFill"></div></div>
+        <div class="cap-labels"><span>0</span><span id="capMax">60</span></div>
       </div>
     </div>
-  </div>
-
-  <!-- Controls -->
-  <div class="btn-row">
-    <button class="btn btn-primary" id="startBtn" disabled>▶ Start</button>
-    <button class="btn btn-danger"  id="stopBtn"  disabled>■ Stop</button>
-    <span id="statusText" style="font-size:0.8rem; color:var(--muted);">Upload a video to begin</span>
-  </div>
-
-  <!-- Alert -->
-  <div class="alert-banner" id="alertBanner"></div>
-
-  <!-- Video panels -->
-  <div class="video-grid single" id="videoGrid">
-    <div class="video-panel">
-      <img id="videoFeedA" src="" style="display:none"/>
-      <div class="placeholder" id="placeholderA">Waiting for stream…</div>
-      <div class="door-label-overlay door-a" id="doorLabelA" style="display:none;">DOOR A</div>
+    <!-- Door breakdown (multi mode) -->
+    <div id="doorStrip" style="display:none">
+      <div class="door-strip" id="doorStripCards"></div>
     </div>
-    <div class="video-panel" id="panelB" style="display:none;">
-      <img id="videoFeedB" src="" style="display:none"/>
-      <div class="placeholder" id="placeholderB">Waiting for Door B stream…</div>
-      <div class="door-label-overlay door-b">DOOR B</div>
+    <!-- In/out (single count mode) -->
+    <div class="stat-grid" style="margin-top:5px" id="inOutCards" style="display:none">
+      <div class="stat-card" id="cardIn">
+        <div class="sc-label">Entered</div>
+        <div class="sc-val green" id="sIn">0</div>
+      </div>
+      <div class="stat-card" id="cardOut">
+        <div class="sc-label">Exited</div>
+        <div class="sc-val red" id="sOut">0</div>
+      </div>
     </div>
   </div>
 
-  <!-- Per-door progress (dual only) -->
-  <div class="progress-row" id="dualProgressRow" style="display:none;">
-    <div class="progress-item">
-      <label><span>Door A</span><span id="progressAText">0%</span></label>
-      <div class="progress-bg"><div class="progress-fill-a" id="progressA"></div></div>
+  <!-- 06 Session logs -->
+  <div class="panel-section" style="flex:1" id="panelLogs">
+    <div class="sec-label">06 — Session Logs</div>
+    <div class="log-list" id="logList"><div class="no-logs">No logs yet</div></div>
+    <button class="btn btn-ghost" style="margin-top:6px;font-size:10px" onclick="loadLogs()">↻ Refresh</button>
+  </div>
+
+</aside>
+
+<!-- ── Content ── -->
+<section class="content">
+  <!-- Full-screen analytics view (shown when inputMode === 'analytics') -->
+  <div id="analyticsFullView" style="display:none;flex:1;flex-direction:column;overflow:hidden;padding:.75rem 1rem;gap:.65rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div>
+        <div style="font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--text)">PEAK HOUR ANALYTICS</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Combined from all single-door and multi-door sessions</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="pkSessions" style="font-family:var(--mono);font-size:10px;color:var(--muted)">0 sessions</div>
+      </div>
     </div>
-    <div class="progress-item">
-      <label><span>Door B</span><span id="progressBText">0%</span></label>
-      <div class="progress-bg"><div class="progress-fill-b" id="progressB"></div></div>
+
+    <!-- Summary cards row -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex-shrink:0">
+      <div class="peak-card" style="background:var(--surf2)">
+        <div class="pk-label">Peak Hour</div>
+        <div class="pk-val" id="pkHourFull">—</div>
+        <div class="pk-sub" id="pkAvgFull">avg —%</div>
+      </div>
+      <div class="peak-card" style="background:var(--surf2)">
+        <div class="pk-label">Peak Occupancy</div>
+        <div class="pk-val" id="pkMaxFull" style="color:var(--red)">—%</div>
+        <div class="pk-sub" id="pkMaxHourFull">at — :00</div>
+      </div>
+      <div class="peak-card" style="background:var(--surf2)">
+        <div class="pk-label">Quietest Hour</div>
+        <div class="pk-val" id="qHourFull" style="color:var(--green)">—</div>
+        <div class="pk-sub" id="qAvgFull">avg —%</div>
+      </div>
+      <div class="peak-card" style="background:var(--surf2)">
+        <div class="pk-label">Hours w/ Data</div>
+        <div class="pk-val" id="hoursTrackedFull" style="color:var(--cyan)">0</div>
+        <div class="pk-sub">of 24 hours</div>
+      </div>
+    </div>
+
+    <!-- Main chart -->
+    <div style="flex:1;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:.6rem .8rem;min-height:0;position:relative">
+      <div class="no-analytics" id="noAnalyticsFull" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        No sessions logged yet — run a video to generate data.
+      </div>
+      <canvas id="hourlyChartFull" style="display:none"></canvas>
+    </div>
+
+    <!-- Per-session summary table -->
+    <div style="flex-shrink:0;background:var(--surf);border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:110px">
+      <div style="padding:5px 10px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">
+        Session Summaries
+      </div>
+      <div style="overflow-y:auto;max-height:80px" id="sessionSummaryList">
+        <div class="no-analytics" style="font-size:10px;padding:.5rem">No sessions yet</div>
+      </div>
     </div>
   </div>
 
-  <!-- Stats -->
-  <div class="stats-row" id="statsRow">
-    <div class="stat-card">
-      <div class="val" id="statCount" style="color:var(--cyan)">—</div>
-      <div class="lbl">Passengers</div>
+  <!-- Live video view (hidden when analytics mode) -->
+  <div id="liveView" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+    <div class="video-area" id="videoArea">
+      <div class="placeholder" id="placeholder">
+        <div class="placeholder-icon">🚌</div>
+        <p>Upload a video to begin</p>
+      </div>
+      <canvas id="videoCanvas"></canvas>
+      <div class="fps-badge" id="fpsBadge">0 fps</div>
+      <div class="multi-video-grid" id="multiGrid" style="display:none"></div>
+      <div class="alert-banner" id="alertBanner"></div>
     </div>
-    <div class="stat-card">
-      <div class="val" id="statCapacity" style="color:var(--muted)">—</div>
-      <div class="lbl">Capacity</div>
-    </div>
-    <div class="stat-card">
-      <div class="val" id="statIn" style="color:var(--green)">—</div>
-      <div class="lbl">Total In</div>
-    </div>
-    <div class="stat-card">
-      <div class="val" id="statOut" style="color:var(--red)">—</div>
-      <div class="lbl">Total Out</div>
-    </div>
-    <div class="stat-card" id="statDoorACard" style="display:none;">
-      <div class="val" id="statDoorAIn" style="color:var(--cyan)">—</div>
-      <div class="lbl" style="color:var(--cyan)">Door A In</div>
-    </div>
-    <div class="stat-card" id="statDoorAOutCard" style="display:none;">
-      <div class="val" id="statDoorAOut" style="color:var(--cyan)">—</div>
-      <div class="lbl" style="color:var(--cyan)">Door A Out</div>
-    </div>
-    <div class="stat-card" id="statDoorBCard" style="display:none;">
-      <div class="val" id="statDoorBIn" style="color:var(--amber)">—</div>
-      <div class="lbl" style="color:var(--amber)">Door B In</div>
-    </div>
-    <div class="stat-card" id="statDoorBOutCard" style="display:none;">
-      <div class="val" id="statDoorBOut" style="color:var(--amber)">—</div>
-      <div class="lbl" style="color:var(--amber)">Door B Out</div>
-    </div>
-    <div class="stat-card">
-      <div class="val" id="statDensity" style="color:var(--green)">—</div>
-      <div class="lbl">Density</div>
-    </div>
-    <div class="stat-card">
-      <div class="val" id="statFps" style="color:var(--muted)">—</div>
-      <div class="lbl">FPS</div>
-    </div>
-  </div>
 
-  <!-- Occupancy bar -->
-  <div class="occ-bar-wrap card">
-    <div class="card-title">Occupancy</div>
-    <div class="occ-bar-bg">
-      <div class="occ-bar-fill" id="occBar" style="width:0%;background:var(--green)"></div>
+    <div class="bottom-area">
+      <div class="tab-bar">
+        <div class="tab active" data-tab="metrics">METRICS</div>
+        <div class="tab" data-tab="chart">OCCUPANCY CHART</div>
+      </div>
+      <div class="tab-content">
+
+        <div class="tab-pane active" id="tab-metrics">
+          <div class="metrics">
+            <div class="metric">
+              <div class="m-label">Count</div>
+              <div class="m-val" id="mCount">—</div>
+              <div class="m-sub">in bus now</div>
+            </div>
+            <div class="metric">
+              <div class="m-label">Density</div>
+              <div class="m-val sm" id="mDensity" style="margin-top:4px">—</div>
+              <div class="m-sub" id="mPct">—% full</div>
+            </div>
+            <div class="metric">
+              <div class="m-label">Capacity</div>
+              <div class="m-val sm" id="mCap" style="margin-top:4px">60</div>
+              <div class="m-sub">max seats</div>
+            </div>
+            <div class="metric">
+              <div class="m-label">Entered</div>
+              <div class="m-val sm green" id="mIn" style="margin-top:4px">—</div>
+              <div class="m-sub">total boarded</div>
+            </div>
+            <div class="metric">
+              <div class="m-label">Exited</div>
+              <div class="m-val sm red" id="mOut" style="margin-top:4px">—</div>
+              <div class="m-sub">total alighted</div>
+            </div>
+            <div class="metric">
+              <div class="m-label">Starting</div>
+              <div class="m-val sm" id="mInitial" style="margin-top:4px;color:var(--muted)">0</div>
+              <div class="m-sub">pre-boarded</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="tab-chart">
+          <div class="chart-wrap">
+            <canvas id="timelineChart"></canvas>
+          </div>
+        </div>
+
+      </div>
     </div>
-    <div class="occ-label"><span id="occPct">0%</span> of capacity</div>
   </div>
+</section>
+</main>
 
-  <!-- Live chart -->
-  <div class="card" style="margin-top:1rem;">
-    <div class="card-title">Live Occupancy Timeline</div>
-    <div class="chart-wrap"><canvas id="liveChart"></canvas></div>
-  </div>
-</div>
-
-<!-- ══════════════════════ ANALYTICS TAB ══════════════════════ -->
-<div class="tab-panel main" id="panel-analytics">
-  <div class="card">
-    <div class="card-title">Peak Hour Occupancy (all sessions)</div>
-    <button class="btn btn-primary" onclick="loadAnalytics()" style="margin-bottom:0.75rem;">Refresh</button>
-    <div class="analytics-chart-wrap"><canvas id="analyticsChart"></canvas></div>
-  </div>
-  <div class="card" style="margin-top:1rem;">
-    <div class="card-title">Session Summaries</div>
-    <table class="summary-table" id="summaryTable">
-      <thead><tr><th>File</th><th>Hour</th><th>Avg %</th><th>Max %</th><th>Rows</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ══════════════════════ LOGS TAB ══════════════════════ -->
-<div class="tab-panel main" id="panel-logs">
-  <div class="card">
-    <div class="card-title">Session Logs</div>
-    <button class="btn btn-primary" onclick="loadLogs()" style="margin-bottom:0.75rem;">Refresh</button>
-    <ul class="log-list" id="logList"></ul>
-  </div>
-</div>
+<div class="toast" id="toast"></div>
 
 <script>
-// ── Tab switching ──────────────────────────────────────────────────────────
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
-    if (tab.dataset.panel === 'analytics') loadAnalytics();
-    if (tab.dataset.panel === 'logs') loadLogs();
-  });
-});
+// ── Door colour palette (mirrors drawing.py) ──────────────────────────────────
+const DOOR_COLORS = [
+  '#06b6d4', '#f59e0b', '#a78bfa', '#22c55e',
+  '#fb923c', '#f472b6', '#2dd4bf', '#bef264',
+];
+function doorColor(i) { return DOOR_COLORS[i % DOOR_COLORS.length]; }
 
-// ── Mode toggle ───────────────────────────────────────────────────────────
-let isDual = false;
-document.querySelectorAll('.mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    isDual = btn.dataset.mode === 'dual';
-    document.getElementById('singleUploadSection').style.display = isDual ? 'none' : '';
-    document.getElementById('dualUploadSection').style.display   = isDual ? ''     : 'none';
-    document.getElementById('lineRatioBField').style.display     = isDual ? ''     : 'none';
-    document.getElementById('lineRatioField').querySelector('label').firstChild.textContent =
-      isDual ? 'Line position A: ' : 'Line position: ';
-    // dual stat cards
-    ['statDoorACard','statDoorAOutCard','statDoorBCard','statDoorBOutCard'].forEach(id => {
-      document.getElementById(id).style.display = isDual ? '' : 'none';
-    });
-    document.getElementById('dualProgressRow').style.display = isDual ? '' : 'none';
-    const grid = document.getElementById('videoGrid');
-    const panelB = document.getElementById('panelB');
-    const labelA = document.getElementById('doorLabelA');
-    if (isDual) {
-      grid.classList.replace('single','dual');
-      panelB.style.display = '';
-      labelA.style.display = '';
-    } else {
-      grid.classList.replace('dual','single');
-      panelB.style.display = 'none';
-      labelA.style.display = 'none';
+// ── State ─────────────────────────────────────────────────────────────────────
+const socket = io();
+let inputMode    = 'single';     // 'single' | 'multi'
+let selectedMode = 'live';       // 'live' | 'count' | 'batch'
+let paused       = false;
+let hourlyChart  = null;
+
+// Single-door
+let uploadedPath = null;
+
+// Multi-door: array of {path, lineRatio, el (DOM node), fileInput}
+let doors = [];
+
+// Door canvas elements keyed by index
+let doorCanvases = {};
+
+// ── Occupancy timeline chart ──────────────────────────────────────────────────
+const chartCtx = document.getElementById('timelineChart').getContext('2d');
+const chart = new Chart(chartCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'People in bus',
+      data: [], borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59,130,246,0.08)',
+      borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true,
+    }, {
+      label: 'Capacity',
+      data: [], borderColor: 'rgba(239,68,68,0.4)',
+      borderWidth: 1, borderDash: [4,4], pointRadius: 0, fill: false,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { labels: { color:'#5a6070', font:{ family:'Space Mono', size:10 }, boxWidth:12 } } },
+    scales: {
+      x: { ticks:{color:'#5a6070',font:{size:9},maxTicksLimit:8}, grid:{color:'#1f2330'} },
+      y: { ticks:{color:'#5a6070',font:{size:9}}, grid:{color:'#1f2330'}, beginAtZero:true }
     }
-    checkReady();
+  }
+});
+
+// ── Tab switching (bottom tabs — metrics / chart only) ────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab,.tab-pane').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).classList.add('active');
   });
 });
 
-// ── File upload helpers ────────────────────────────────────────────────────
-let uploadedPath   = null;
-let uploadedPathA  = null;
-let uploadedPathB  = null;
+// ── Input mode switch ─────────────────────────────────────────────────────────
+function switchInputMode(mode) {
+  inputMode = mode;
+  document.getElementById('tabSingle').classList.toggle('active',    mode === 'single');
+  document.getElementById('tabMulti').classList.toggle('active',     mode === 'multi');
+  document.getElementById('tabAnalytics').classList.toggle('active', mode === 'analytics');
+  document.getElementById('paneSingle').classList.toggle('active',   mode === 'single');
+  document.getElementById('paneMulti').classList.toggle('active',    mode === 'multi');
+  document.getElementById('paneAnalytics').classList.toggle('active',mode === 'analytics');
 
-async function uploadFile(file, areaEl, labelEl) {
+  // Show analytics full-screen or live view
+  const isAnalytics = mode === 'analytics';
+  document.getElementById('analyticsFullView').style.display = isAnalytics ? 'flex' : 'none';
+  document.getElementById('liveView').style.display          = isAnalytics ? 'none' : 'flex';
+
+  // Hide settings/control/stats sections when in analytics mode
+  ['panelSettings','panelProcMode','panelControl','panelStats','panelLogs'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isAnalytics ? 'none' : '';
+  });
+
+  if (isAnalytics) loadAnalyticsFull();
+  updateStartBtn();
+}
+
+// ── Processing mode buttons ───────────────────────────────────────────────────
+const modeHints = {
+  live:  'Streams every frame with detection boxes. Counting line tracks in/out.',
+  count: 'Full entry/exit tracking via line crossing — most accurate.',
+  batch: 'Skips frames for speed — best for long recordings.',
+};
+document.querySelectorAll('.proc-mode-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.proc-mode-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    selectedMode = b.dataset.mode;
+    document.getElementById('modeHint').textContent = modeHints[selectedMode];
+  });
+});
+
+// ── Single door upload ────────────────────────────────────────────────────────
+const dropZoneSingle = document.getElementById('dropZoneSingle');
+const fileInputSingle = document.getElementById('fileInputSingle');
+dropZoneSingle.addEventListener('dragover', e => { e.preventDefault(); dropZoneSingle.classList.add('drag-over'); });
+dropZoneSingle.addEventListener('dragleave', () => dropZoneSingle.classList.remove('drag-over'));
+dropZoneSingle.addEventListener('drop', e => { e.preventDefault(); dropZoneSingle.classList.remove('drag-over'); if(e.dataTransfer.files[0]) uploadSingle(e.dataTransfer.files[0]); });
+fileInputSingle.addEventListener('change', () => { if(fileInputSingle.files[0]) uploadSingle(fileInputSingle.files[0]); });
+
+async function uploadSingle(file) {
+  toast('Uploading ' + file.name + '…');
+  document.getElementById('fileTagSingle').style.display = 'block';
+  document.getElementById('fileTagSingle').textContent = '⏳ ' + file.name;
   const fd = new FormData();
   fd.append('video', file);
-  areaEl.querySelector('p').textContent = 'Uploading…';
-  const r = await fetch('/upload', { method: 'POST', body: fd });
-  const j = await r.json();
-  if (j.ok) {
-    areaEl.classList.add('ready');
-    areaEl.querySelector('p').textContent = '';
-    // show filename
-    let fn = areaEl.querySelector('.filename');
-    if (!fn) { fn = document.createElement('div'); fn.className = 'filename'; areaEl.appendChild(fn); }
-    fn.textContent = '✓ ' + j.name;
-    return j.path;
-  }
-  areaEl.querySelector('p').textContent = 'Upload failed';
-  return null;
+  try {
+    const r = await fetch('/upload', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      uploadedPath = d.path;
+      document.getElementById('fileTagSingle').textContent = '✓ ' + d.name;
+      toast('Ready — ' + d.name);
+      updateStartBtn();
+    }
+  } catch(e) { toast('Upload failed'); }
 }
 
-// Single
-document.getElementById('fileInput').addEventListener('change', async e => {
-  const file = e.target.files[0]; if (!file) return;
-  uploadedPath = await uploadFile(file, document.getElementById('uploadArea'), null);
-  checkReady();
-});
-setupDrop('uploadArea', async file => {
-  uploadedPath = await uploadFile(file, document.getElementById('uploadArea'), null);
-  checkReady();
+document.getElementById('lineInput').addEventListener('input', function() {
+  document.getElementById('lineVal').textContent = this.value + '%';
 });
 
-// Dual A
-document.getElementById('fileInputA').addEventListener('change', async e => {
-  const file = e.target.files[0]; if (!file) return;
-  uploadedPathA = await uploadFile(file, document.getElementById('uploadAreaA'), null);
-  checkReady();
-});
-setupDrop('uploadAreaA', async file => {
-  uploadedPathA = await uploadFile(file, document.getElementById('uploadAreaA'), null);
-  checkReady();
-});
+// ── Multi-door management ─────────────────────────────────────────────────────
+function setDoorCount(n) {
+  doors = [];
+  document.getElementById('doorList').innerHTML = '';
+  for (let i = 0; i < n; i++) addDoor();
+}
 
-// Dual B
-document.getElementById('fileInputB').addEventListener('change', async e => {
-  const file = e.target.files[0]; if (!file) return;
-  uploadedPathB = await uploadFile(file, document.getElementById('uploadAreaB'), null);
-  checkReady();
-});
-setupDrop('uploadAreaB', async file => {
-  uploadedPathB = await uploadFile(file, document.getElementById('uploadAreaB'), null);
-  checkReady();
-});
+function addDoor() {
+  const i     = doors.length;
+  const label = String.fromCharCode(65 + i);
+  const color = doorColor(i);
 
-function setupDrop(id, cb) {
-  const el = document.getElementById(id);
-  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag'); });
-  el.addEventListener('dragleave', () => el.classList.remove('drag'));
-  el.addEventListener('drop', e => {
-    e.preventDefault(); el.classList.remove('drag');
-    const f = e.dataTransfer.files[0]; if (f) cb(f);
+  const entry = document.createElement('div');
+  entry.className = 'door-entry';
+  entry.id = `doorEntry${i}`;
+  entry.innerHTML = `
+    <div class="door-header">
+      <span class="door-badge" style="color:${color};border:1px solid ${color};background:${color}18">🚪 DOOR ${label}</span>
+      <button class="door-del" onclick="removeDoor(${i})" title="Remove">✕</button>
+    </div>
+    <div style="position:relative">
+      <label style="display:block;border:1px dashed var(--border2);border-radius:5px;padding:5px 8px;cursor:pointer;text-align:center">
+        <input type="file" accept="video/*" style="display:none" id="doorFile${i}">
+        <span class="door-file-label" id="doorFileLabel${i}">Click to choose video</span>
+      </label>
+    </div>
+    <div class="door-slider-row">
+      <label style="color:var(--muted);font-size:9px;font-family:var(--mono)">LINE</label>
+      <input type="range" id="doorLine${i}" min="20" max="90" value="55"
+             oninput="document.getElementById('doorLineVal${i}').textContent=this.value+'%'">
+      <span class="door-slider-val" id="doorLineVal${i}">55%</span>
+    </div>`;
+  document.getElementById('doorList').appendChild(entry);
+
+  const fileInput = document.getElementById(`doorFile${i}`);
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) uploadDoorFile(i, fileInput.files[0]);
   });
+
+  doors.push({ path: null, lineRatio: 0.55 });
+  updateStartBtn();
 }
 
-function checkReady() {
-  const ok = isDual ? (uploadedPathA && uploadedPathB) : !!uploadedPath;
-  document.getElementById('startBtn').disabled = !ok;
-  if (!ok) setStatus(isDual ? 'Upload both door videos to begin' : 'Upload a video to begin');
-  else setStatus('Ready — press Start');
+function removeDoor(i) {
+  doors.splice(i, 1);
+  rebuildDoorList();
 }
 
-// ── Socket.IO ──────────────────────────────────────────────────────────────
-const socket = io();
+function rebuildDoorList() {
+  // Re-render from scratch (simplest approach for a settings panel)
+  const n = doors.length;
+  const savedPaths = doors.map(d => d.path);
+  const savedRatios = doors.map(d => d.lineRatio);
+  doors = [];
+  document.getElementById('doorList').innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    addDoor();
+    doors[i].path      = savedPaths[i];
+    doors[i].lineRatio = savedRatios[i];
+    document.getElementById(`doorLineVal${i}`).textContent = Math.round(savedRatios[i] * 100) + '%';
+    document.getElementById(`doorLine${i}`).value = Math.round(savedRatios[i] * 100);
+    if (savedPaths[i]) {
+      document.getElementById(`doorFileLabel${i}`).textContent = '✓ ' + savedPaths[i].split('/').pop();
+    }
+  }
+  updateStartBtn();
+}
 
-socket.on('connect', () => console.log('Socket connected'));
+async function uploadDoorFile(i, file) {
+  document.getElementById(`doorFileLabel${i}`).textContent = '⏳ ' + file.name;
+  const fd = new FormData();
+  fd.append('video', file);
+  try {
+    const r = await fetch('/upload', {method:'POST', body:fd});
+    const d = await r.json();
+    if (d.ok) {
+      doors[i].path = d.path;
+      document.getElementById(`doorFileLabel${i}`).textContent = '✓ ' + d.name;
+      toast(`Door ${String.fromCharCode(65+i)}: ready`);
+      updateStartBtn();
+    }
+  } catch(e) { toast('Upload failed for door ' + String.fromCharCode(65+i)); }
+}
 
+function updateStartBtn() {
+  let ready = false;
+  if (inputMode === 'single') {
+    ready = !!uploadedPath;
+  } else {
+    ready = doors.length >= 2 && doors.every(d => d.path);
+  }
+  document.getElementById('startBtn').disabled = !ready;
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', startProcessing);
+document.getElementById('pauseBtn').addEventListener('click', togglePause);
+document.getElementById('stopBtn').addEventListener('click', stopProcessing);
+
+function startProcessing() {
+  const capacity      = parseInt(document.getElementById('capacityInput').value) || 60;
+  const initial_count = parseInt(document.getElementById('initialCountInput').value) || 0;
+
+  setStatus('active', 'RUNNING');
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('pauseBtn').disabled = false;
+  document.getElementById('stopBtn').disabled  = false;
+  document.getElementById('progWrap').style.display = 'block';
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('mInitial').textContent = initial_count;
+  document.getElementById('capMax').textContent   = capacity;
+  document.getElementById('mCap').textContent     = capacity;
+
+  chart.data.labels = [];
+  chart.data.datasets[0].data = [];
+  chart.data.datasets[1].data = [];
+  chart.update();
+  paused = false;
+
+  if (inputMode === 'single') {
+    document.getElementById('videoCanvas').style.display = 'block';
+    document.getElementById('fpsBadge').style.display    = 'block';
+    document.getElementById('multiGrid').style.display   = 'none';
+    document.getElementById('doorStrip').style.display   = 'none';
+    document.getElementById('inOutCards').style.display  = selectedMode !== 'batch' ? '' : 'none';
+
+    const line_ratio = parseInt(document.getElementById('lineInput').value) / 100;
+    socket.emit('start_processing', { path: uploadedPath, mode: selectedMode,
+                                      capacity, line_ratio, initial_count });
+  } else {
+    // Sync line ratios from sliders
+    doors.forEach((d, i) => {
+      d.lineRatio = parseInt(document.getElementById(`doorLine${i}`).value) / 100;
+    });
+
+    document.getElementById('videoCanvas').style.display = 'none';
+    document.getElementById('fpsBadge').style.display    = 'none';
+    buildMultiGrid(doors.length);
+    document.getElementById('multiGrid').style.display   = 'grid';
+    document.getElementById('doorStrip').style.display   = '';
+    buildDoorStrip(doors.length);
+    document.getElementById('inOutCards').style.display  = 'none';
+
+    socket.emit('start_multi', {
+      doors: doors.map(d => ({ path: d.path, line_ratio: d.lineRatio })),
+      mode: selectedMode, capacity, initial_count,
+    });
+  }
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
+  setStatus(paused ? 'idle' : 'active', paused ? 'PAUSED' : 'RUNNING');
+  socket.emit(paused ? 'pause_processing' : 'resume_processing', {});
+}
+
+function stopProcessing() {
+  socket.emit('stop_processing', {});
+  setStatus('idle', 'STOPPING');
+}
+
+// ── Multi-door video grid ─────────────────────────────────────────────────────
+const GRID_COLS = { 1:1, 2:2, 3:3, 4:2, 5:3, 6:3, 7:4, 8:4 };
+
+function buildMultiGrid(n) {
+  const grid = document.getElementById('multiGrid');
+  grid.innerHTML = '';
+  doorCanvases = {};
+  const cols = GRID_COLS[n] || Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+
+  for (let i = 0; i < n; i++) {
+    const label = String.fromCharCode(65 + i);
+    const color = doorColor(i);
+    const card  = document.createElement('div');
+    card.className = 'door-video-card';
+    card.innerHTML = `
+      <div class="door-video-header">
+        <span class="door-video-label" style="color:${color}">DOOR ${label}</span>
+        <span class="door-video-fps" id="doorFps${i}">— fps</span>
+      </div>
+      <canvas class="door-video-canvas" id="doorCanvas${i}"></canvas>`;
+    grid.appendChild(card);
+    doorCanvases[i] = document.getElementById(`doorCanvas${i}`);
+  }
+}
+
+function buildDoorStrip(n) {
+  const strip = document.getElementById('doorStripCards');
+  strip.innerHTML = '';
+  strip.style.gridTemplateColumns = `repeat(${Math.min(n, 4)}, 1fr)`;
+  for (let i = 0; i < n; i++) {
+    const label = String.fromCharCode(65 + i);
+    const color = doorColor(i);
+    const card  = document.createElement('div');
+    card.className = 'door-strip-card';
+    card.style.borderLeftColor = color;
+    card.innerHTML = `
+      <span class="door-strip-label" style="color:${color}">DOOR ${label}</span>
+      <div class="door-strip-nums">
+        <span class="in"  id="stripIn${i}">IN 0</span>
+        <span class="out" id="stripOut${i}">OUT 0</span>
+      </div>`;
+    strip.appendChild(card);
+  }
+}
+
+// ── Socket events ─────────────────────────────────────────────────────────────
 socket.on('video_info', d => {
-  setStatus(`Video: ${d.width}×${d.height} @ ${d.fps} fps — ${d.total_frames} frames`);
-  document.getElementById('modelBadge').textContent = 'MODEL LOADED';
+  document.getElementById('frameLabel').textContent = `0 / ${d.total_frames}`;
 });
 
-// Single-camera frames
 socket.on('frame_data', d => {
+  // Single-door update
+  document.getElementById('progBar').style.width    = d.progress + '%';
+  document.getElementById('progLabel').textContent  = d.progress + '%';
+  document.getElementById('frameLabel').textContent = `${d.frame_idx} / ${d.total_frames}`;
+
   if (d.frame) {
-    const img = document.getElementById('videoFeedA');
-    img.src = 'data:image/jpeg;base64,' + d.frame;
-    img.style.display = '';
-    document.getElementById('placeholderA').style.display = 'none';
+    const img    = new Image();
+    const canvas = document.getElementById('videoCanvas');
+    const ctx    = canvas.getContext('2d');
+    img.onload = () => { canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0); };
+    img.src    = 'data:image/jpeg;base64,' + d.frame;
   }
+  document.getElementById('fpsBadge').textContent = d.fps + ' fps';
   updateStats(d);
-  if (d.alert) showAlert(d.alert);
-  if (d.timeline) updateChart(d.timeline);
-  setStatus(`Frame ${d.frame_idx}/${d.total_frames} — ${d.progress}%`);
+  updateChart(d);
+  if (d.alert) showAlert(d.alert.level, d.alert.msg);
 });
 
-// Dual-camera frames
-socket.on('dual_frame_data', d => {
-  if (d.frame_a) {
-    const img = document.getElementById('videoFeedA');
-    img.src = 'data:image/jpeg;base64,' + d.frame_a;
-    img.style.display = '';
-    document.getElementById('placeholderA').style.display = 'none';
+socket.on('multi_frame_data', d => {
+  // Draw the updated door frame
+  const i = d.door_index;
+  if (d.door_frames && d.door_frames[i]) {
+    const canvas = doorCanvases[i];
+    if (canvas) {
+      const img = new Image();
+      img.onload = () => { canvas.width = img.width; canvas.height = img.height;
+                           canvas.getContext('2d').drawImage(img, 0, 0); };
+      img.src = 'data:image/jpeg;base64,' + d.door_frames[i];
+    }
   }
-  if (d.frame_b) {
-    const img = document.getElementById('videoFeedB');
-    img.src = 'data:image/jpeg;base64,' + d.frame_b;
-    img.style.display = '';
-    document.getElementById('placeholderB').style.display = 'none';
+  // Update door fps
+  if (d.door_fps_list) {
+    d.door_fps_list.forEach((fps, idx) => {
+      const el = document.getElementById(`doorFps${idx}`);
+      if (el) el.textContent = fps + ' fps';
+    });
   }
-  // progress bars
-  document.getElementById('progressA').style.width = d.progress_a + '%';
-  document.getElementById('progressB').style.width = d.progress_b + '%';
-  document.getElementById('progressAText').textContent = d.progress_a + '%';
-  document.getElementById('progressBText').textContent = d.progress_b + '%';
+  // Door strip IN/OUT
+  if (d.door_in_list) {
+    d.door_in_list.forEach((v, idx) => {
+      const el = document.getElementById(`stripIn${idx}`);
+      if (el) el.textContent = 'IN ' + v;
+    });
+  }
+  if (d.door_out_list) {
+    d.door_out_list.forEach((v, idx) => {
+      const el = document.getElementById(`stripOut${idx}`);
+      if (el) el.textContent = 'OUT ' + v;
+    });
+  }
+  // Combined progress (average across doors)
+  if (d.door_prog_list) {
+    const avg = Math.round(d.door_prog_list.reduce((a,b)=>a+b,0)/d.door_prog_list.length);
+    document.getElementById('progBar').style.width   = avg + '%';
+    document.getElementById('progLabel').textContent = avg + '%';
+  }
 
-  updateStats(d);
-  if (d.alert) showAlert(d.alert);
-  if (d.timeline) updateChart(d.timeline);
-
-  const fps = d.fps_a !== undefined ? ((d.fps_a + d.fps_b) / 2).toFixed(1) : '—';
-  setStatus(`Door A: ${d.progress_a}% | Door B: ${d.progress_b}% | FPS ≈ ${fps}`);
+  // Shared stats
+  const synth = { ...d, fps: (d.door_fps_list||[]).reduce((a,b)=>a+b,0),
+                  in_count: d.total_in, out_count: d.total_out };
+  updateStats(synth);
+  updateChart(d);
+  if (d.alert) showAlert(d.alert.level, d.alert.msg);
 });
 
 socket.on('done', d => {
-  setStatus(`Done — In: ${d.in_count}, Out: ${d.out_count}, Final: ${d.final_count}`);
+  setStatus('idle', 'DONE');
   document.getElementById('startBtn').disabled = false;
+  document.getElementById('pauseBtn').disabled = true;
   document.getElementById('stopBtn').disabled  = true;
-  if (d.timeline) updateChart(d.timeline);
+  document.getElementById('progBar').style.width = '100%';
+  if (d.mode === 'multi') {
+    toast(`✓ Done — ${d.total_in} entered, ${d.total_out} exited, final: ${d.final_count}`);
+  } else {
+    toast(`✓ Done — ${d.in_count} entered, ${d.out_count} exited, final: ${d.final_count}`);
+  }
+  hideAlert();
+  loadLogs();
 });
 
 socket.on('stopped', () => {
-  setStatus('Stopped'); 
+  setStatus('idle', 'IDLE');
   document.getElementById('startBtn').disabled = false;
+  document.getElementById('pauseBtn').disabled = true;
+  document.getElementById('stopBtn').disabled  = true;
+  hideAlert();
+});
+
+socket.on('paused', () => {
+  setStatus('idle', 'PAUSED');
+});
+
+socket.on('resumed', () => {
+  setStatus('active', 'RUNNING');
+});
+
+socket.on('error', d => {
+  toast('Error: ' + d.msg);
+  setStatus('idle', 'ERROR');
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('pauseBtn').disabled = true;
   document.getElementById('stopBtn').disabled  = true;
 });
 
-socket.on('error', d => { setStatus('Error: ' + d.msg); });
-
-// ── Start / Stop ───────────────────────────────────────────────────────────
-document.getElementById('startBtn').addEventListener('click', () => {
-  liveChartData.labels = []; liveChartData.datasets[0].data = []; liveChart.update();
-  hideAlert();
-
-  const capacity      = parseInt(document.getElementById('capacity').value)      || 60;
-  const initialCount  = parseInt(document.getElementById('initialCount').value)  || 0;
-  const procMode      = document.getElementById('procMode').value;
-  const lineRatio     = parseFloat(document.getElementById('lineRatio').value);
-  const lineRatioB    = parseFloat(document.getElementById('lineRatioB').value);
-
-  document.getElementById('startBtn').disabled = true;
-  document.getElementById('stopBtn').disabled  = false;
-
-  if (isDual) {
-    socket.emit('start_dual_processing', {
-      path_a: uploadedPathA, path_b: uploadedPathB,
-      mode: procMode, capacity, initial_count: initialCount,
-      line_ratio_a: lineRatio, line_ratio_b: lineRatioB,
-    });
-    setStatus('Starting dual-door processing…');
-  } else {
-    socket.emit('start_processing', {
-      path: uploadedPath, mode: procMode,
-      capacity, initial_count: initialCount, line_ratio: lineRatio,
-    });
-    setStatus('Starting…');
-  }
-});
-
-document.getElementById('stopBtn').addEventListener('click', () => {
-  socket.emit('stop_processing', {});
-});
-
-// ── Stats update ───────────────────────────────────────────────────────────
+// ── Shared stat updater ───────────────────────────────────────────────────────
 function updateStats(d) {
-  document.getElementById('statCount').textContent    = d.count ?? '—';
-  document.getElementById('statCapacity').textContent = d.capacity ?? '—';
-  document.getElementById('statIn').textContent       = d.in_count ?? '—';
-  document.getElementById('statOut').textContent      = d.out_count ?? '—';
-  document.getElementById('statDensity').textContent  = d.density ?? '—';
-  document.getElementById('statDensity').style.color  = d.density_color ?? 'var(--text)';
+  document.getElementById('sCount').textContent   = d.count;
+  document.getElementById('sFps').textContent     = typeof d.fps === 'number' ? Math.round(d.fps) : d.fps;
+  document.getElementById('sPct').textContent     = d.occupancy_pct + '%';
+  const fill = document.getElementById('capFill');
+  fill.style.width      = d.occupancy_pct + '%';
+  fill.style.background = d.density_color;
+  const badge = document.getElementById('densityBadge');
+  badge.textContent       = d.density;
+  badge.style.color       = d.density_color;
+  badge.style.borderColor = d.density_color + '55';
+  badge.style.background  = d.density_color + '18';
+  document.getElementById('capMax').textContent  = d.capacity;
+  document.getElementById('mCount').textContent  = d.count;
+  document.getElementById('mDensity').textContent= d.density;
+  document.getElementById('mDensity').style.color= d.density_color;
+  document.getElementById('mPct').textContent    = d.occupancy_pct + '% full';
+  document.getElementById('mCap').textContent    = d.capacity;
+  document.getElementById('mIn').textContent     = d.in_count  ?? d.total_in  ?? '—';
+  document.getElementById('mOut').textContent    = d.out_count ?? d.total_out ?? '—';
+  document.getElementById('sIn').textContent     = d.in_count  ?? d.total_in  ?? '—';
+  document.getElementById('sOut').textContent    = d.out_count ?? d.total_out ?? '—';
+}
 
-  const fps = d.fps ?? (d.fps_a !== undefined ? ((d.fps_a + d.fps_b)/2).toFixed(1) : '—');
-  document.getElementById('statFps').textContent = fps;
-
-  if (d.dual_door) {
-    document.getElementById('statDoorAIn').textContent  = d.door_a_in ?? '—';
-    document.getElementById('statDoorAOut').textContent = d.door_a_out ?? '—';
-    document.getElementById('statDoorBIn').textContent  = d.door_b_in ?? '—';
-    document.getElementById('statDoorBOut').textContent = d.door_b_out ?? '—';
+function updateChart(d) {
+  if (d.timeline && d.timeline.length) {
+    chart.data.labels           = d.timeline.map(p => p.t + 's');
+    chart.data.datasets[0].data = d.timeline.map(p => p.count);
+    chart.data.datasets[1].data = d.timeline.map(() => d.capacity);
+    chart.update('none');
   }
-
-  const pct = d.occupancy_pct ?? 0;
-  document.getElementById('occBar').style.width      = Math.min(pct, 100) + '%';
-  document.getElementById('occBar').style.background = d.density_color ?? '#22c55e';
-  document.getElementById('occPct').textContent      = pct + '%';
 }
 
-// ── Alert ──────────────────────────────────────────────────────────────────
-function showAlert(alert) {
-  const el = document.getElementById('alertBanner');
-  el.className = 'alert-banner ' + alert.level;
-  el.textContent = (alert.level === 'critical' ? '🚨 ' : '⚠️ ') + alert.msg;
-  el.style.display = '';
-}
-function hideAlert() {
-  document.getElementById('alertBanner').style.display = 'none';
-}
-
-// ── Status text ────────────────────────────────────────────────────────────
-function setStatus(msg) { document.getElementById('statusText').textContent = msg; }
-
-// ── Live chart ─────────────────────────────────────────────────────────────
-const liveChartData = {
-  labels: [],
-  datasets: [{
-    label: 'Occupancy %',
-    data: [],
-    borderColor: '#6366f1',
-    backgroundColor: 'rgba(99,102,241,.1)',
-    fill: true,
-    tension: 0.4,
-    pointRadius: 0,
-  }]
-};
-const liveChart = new Chart(document.getElementById('liveChart'), {
-  type: 'line',
-  data: liveChartData,
-  options: {
-    responsive: true, maintainAspectRatio: false, animation: false,
-    scales: {
-      x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: '#2a2d3a' } },
-      y: { min: 0, max: 100, ticks: { color: '#64748b', callback: v => v+'%' }, grid: { color: '#2a2d3a' } }
-    },
-    plugins: { legend: { display: false } }
-  }
-});
-
-function updateChart(tl) {
-  liveChartData.labels   = tl.map(p => p.t + 's');
-  liveChartData.datasets[0].data = tl.map(p => p.pct);
-  liveChart.update('none');
-}
-
-// ── Analytics ──────────────────────────────────────────────────────────────
-let analyticsChart = null;
-async function loadAnalytics() {
-  const r = await fetch('/analytics');
-  const d = await r.json();
-  const hours = Array.from({length: 24}, (_, i) => i);
-  const avgs  = hours.map(h => d.hourly[h]?.avg_pct ?? null);
-  const maxs  = hours.map(h => d.hourly[h]?.max_pct ?? null);
-  const colors = avgs.map(v => {
-    if (v === null) return 'rgba(42,45,58,.5)';
-    if (v < 40) return 'rgba(34,197,94,.7)';
-    if (v < 70) return 'rgba(99,102,241,.7)';
-    if (v < 90) return 'rgba(245,158,11,.7)';
-    return 'rgba(239,68,68,.7)';
-  });
-  if (analyticsChart) analyticsChart.destroy();
-  analyticsChart = new Chart(document.getElementById('analyticsChart'), {
-    type: 'bar',
-    data: {
-      labels: hours.map(h => `${h}:00`),
-      datasets: [
-        { label: 'Avg %',  data: avgs,  backgroundColor: colors, borderRadius: 4 },
-        { label: 'Peak %', data: maxs,  backgroundColor: 'rgba(239,68,68,.3)', borderRadius: 4, type: 'line', fill: false, tension: 0.4, pointRadius: 3, borderColor: '#ef4444' }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { ticks: { color: '#64748b' }, grid: { color: '#2a2d3a' } },
-        y: { min: 0, max: 100, ticks: { color: '#64748b', callback: v => v+'%' }, grid: { color: '#2a2d3a' } }
-      },
-      plugins: { legend: { labels: { color: '#64748b' } } }
-    }
-  });
-  const tbody = document.querySelector('#summaryTable tbody');
-  tbody.innerHTML = '';
-  (d.summaries || []).forEach(s => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${s.file}</td><td>${s.hour ?? '—'}</td><td>${s.avg_pct}%</td><td>${s.max_pct}%</td><td>${s.rows}</td>`;
-    tbody.appendChild(tr);
-  });
-}
-
-// ── Logs ───────────────────────────────────────────────────────────────────
+// ── Session logs ──────────────────────────────────────────────────────────────
 async function loadLogs() {
-  const r = await fetch('/logs');
-  const d = await r.json();
-  const ul = document.getElementById('logList');
-  ul.innerHTML = '';
-  if (!d.logs.length) { ul.innerHTML = '<li style="color:var(--muted)">No logs yet</li>'; return; }
-  d.logs.forEach(f => {
-    const li = document.createElement('li');
-    li.innerHTML = `<span>${f}</span> <a href="/logs/${f}" download>⬇ Download</a>`;
-    ul.appendChild(li);
-  });
+  try {
+    const r  = await fetch('/logs');
+    const d  = await r.json();
+    const el = document.getElementById('logList');
+    if (!d.logs.length) { el.innerHTML = '<div class="no-logs">No logs yet</div>'; return; }
+    el.innerHTML = d.logs.map(f => `
+      <div class="log-item">
+        <span style="max-width:175px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f}</span>
+        <a class="log-dl" href="/logs/${encodeURIComponent(f)}" download>↓ CSV</a>
+      </div>`).join('');
+  } catch(e) {}
 }
+loadLogs();
+
+// ── Peak-hour analytics (full-screen) ────────────────────────────────────────
+let hourlyChartInstance = null;
+
+async function loadAnalyticsFull() {
+  try {
+    const r = await fetch('/analytics');
+    const d = await r.json();
+    const hourly    = d.hourly;
+    const summaries = d.summaries || [];
+
+    const hours = Object.keys(hourly).map(Number).filter(h => hourly[h].sample_count > 0);
+
+    const noEl      = document.getElementById('noAnalyticsFull');
+    const chartEl   = document.getElementById('hourlyChartFull');
+
+    if (!hours.length) {
+      noEl.style.display    = 'flex';
+      chartEl.style.display = 'none';
+      document.getElementById('pkSessions').textContent = '0 sessions';
+      return;
+    }
+
+    noEl.style.display    = 'none';
+    chartEl.style.display = 'block';
+
+    // Summary cards
+    const sorted = [...hours].sort((a,b) => (hourly[b].avg_pct||0) - (hourly[a].avg_pct||0));
+    const peak  = sorted[0];
+    const quiet = sorted[sorted.length - 1];
+    const allMax = hours.reduce((m, h) => Math.max(m, hourly[h].max_pct||0), 0);
+    const peakMaxHour = hours.find(h => hourly[h].max_pct === allMax) ?? peak;
+
+    document.getElementById('pkHourFull').textContent      = peak + ':00';
+    document.getElementById('pkAvgFull').textContent       = 'avg ' + hourly[peak].avg_pct + '%';
+    document.getElementById('pkMaxFull').textContent       = allMax + '%';
+    document.getElementById('pkMaxHourFull').textContent   = 'at ' + peakMaxHour + ':00';
+    document.getElementById('qHourFull').textContent       = quiet + ':00';
+    document.getElementById('qAvgFull').textContent        = 'avg ' + hourly[quiet].avg_pct + '%';
+    document.getElementById('hoursTrackedFull').textContent= hours.length;
+    document.getElementById('pkSessions').textContent      = summaries.length + ' session' + (summaries.length !== 1 ? 's' : '');
+
+    // Build 24-hour chart
+    const labels   = Array.from({length:24}, (_,h) => h + ':00');
+    const avgData  = Array.from({length:24}, (_,h) => hourly[h]?.avg_pct  ?? null);
+    const maxData  = Array.from({length:24}, (_,h) => hourly[h]?.max_pct  ?? null);
+
+    const barColors = avgData.map(v => {
+      if (v === null) return 'rgba(42,47,64,0.5)';
+      if (v >= 80)   return 'rgba(239,68,68,0.75)';
+      if (v >= 60)   return 'rgba(245,158,11,0.75)';
+      if (v >= 30)   return 'rgba(59,130,246,0.75)';
+      return 'rgba(34,197,94,0.75)';
+    });
+
+    if (hourlyChartInstance) hourlyChartInstance.destroy();
+    hourlyChartInstance = new Chart(chartEl.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Avg occupancy %',
+          data: avgData, backgroundColor: barColors, borderRadius: 4, borderSkipped: false,
+        }, {
+          label: 'Peak %', data: maxData, type: 'line',
+          borderColor: 'rgba(239,68,68,0.55)', borderWidth: 1.5,
+          borderDash: [3,3], pointRadius: 3,
+          pointBackgroundColor: 'rgba(239,68,68,0.8)', fill: false,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {
+          legend: { labels:{ color:'#5a6070', font:{family:'Space Mono',size:9}, boxWidth:10 } },
+          tooltip: { callbacks:{ label: ctx => ctx.dataset.label + ': ' + (ctx.parsed.y !== null ? ctx.parsed.y + '%' : 'no data') } }
+        },
+        scales: {
+          x: { ticks:{color:'#5a6070', font:{size:8}, maxRotation:0}, grid:{color:'#1f2330'} },
+          y: { ticks:{color:'#5a6070', font:{size:9}, callback: v => v+'%'}, grid:{color:'#1f2330'}, beginAtZero:true, max:100 }
+        }
+      }
+    });
+
+    // Session summary table
+    const listEl = document.getElementById('sessionSummaryList');
+    if (!summaries.length) {
+      listEl.innerHTML = '<div class="no-analytics" style="font-size:10px;padding:.5rem">No sessions yet</div>';
+    } else {
+      listEl.innerHTML = summaries.slice().reverse().map(s => `
+        <div style="display:grid;grid-template-columns:1fr 60px 60px 60px 50px;align-items:center;padding:3px 10px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px;color:var(--muted)">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${s.file}</span>
+          <span style="text-align:right">${s.hour !== null ? s.hour + ':00' : '—'}</span>
+          <span style="text-align:right;color:var(--accent)">${s.avg_pct}%</span>
+          <span style="text-align:right;color:var(--red)">${s.max_pct}%</span>
+          <span style="text-align:right">${s.rows} rows</span>
+        </div>`).join('');
+    }
+
+  } catch(e) { console.error('Analytics error:', e); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setStatus(state, label) {
+  const pill = document.getElementById('statusPill');
+  pill.className = 'status-pill ' + state;
+  document.getElementById('statusText').textContent = label;
+}
+
+let alertTimer;
+function showAlert(level, msg) {
+  const b = document.getElementById('alertBanner');
+  b.textContent = msg;
+  b.className   = 'alert-banner ' + level;
+  b.style.display = 'block';
+  clearTimeout(alertTimer);
+  alertTimer = setTimeout(hideAlert, 5000);
+}
+function hideAlert() { document.getElementById('alertBanner').style.display = 'none'; }
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// Init: add 2 doors by default in multi mode
+setDoorCount(2);
 </script>
 </body>
 </html>

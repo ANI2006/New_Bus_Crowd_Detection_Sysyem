@@ -21,6 +21,7 @@ class CentroidTracker:
         del self.disappeared[oid]
 
     def update(self, boxes):
+        """boxes: list of [x1,y1,x2,y2]. Returns dict {id: (cx, cy)}."""
         if not boxes:
             for oid in list(self.disappeared):
                 self.disappeared[oid] += 1
@@ -28,7 +29,8 @@ class CentroidTracker:
                     self._deregister(oid)
             return dict(self.objects)
 
-        centroids = [(int((x1+x2)/2), int((y1+y2)/2)) for x1, y1, x2, y2 in boxes]
+        centroids = [(int((x1 + x2) / 2), int((y1 + y2) / 2))
+                     for x1, y1, x2, y2 in boxes]
 
         if not self.objects:
             for c in centroids:
@@ -39,7 +41,7 @@ class CentroidTracker:
             used_rows, used_cols = set(), set()
 
             pairs = sorted(
-                [(math.hypot(oc[0]-nc[0], oc[1]-nc[1]), r, c)
+                [(math.hypot(oc[0] - nc[0], oc[1] - nc[1]), r, c)
                  for r, oc in enumerate(ocentroids)
                  for c, nc in enumerate(centroids)]
             )
@@ -74,6 +76,7 @@ class CentroidTracker:
 
 
 class LineCrossCounter:
+    """Counts upward/downward crossings of a horizontal line."""
 
     def __init__(self, line_y, label="A"):
         self.line_y    = line_y
@@ -92,10 +95,10 @@ class LineCrossCounter:
 
             if oid in self.prev_cy and self.cooldown[oid] == 0:
                 prev = self.prev_cy[oid]
-                if prev < self.line_y <= cy:       
+                if prev < self.line_y <= cy:        # crossed downward → entering
                     self.in_count += 1
                     self.cooldown[oid] = CROSS_COOLDOWN
-                elif prev > self.line_y >= cy:     
+                elif prev > self.line_y >= cy:      # crossed upward  → exiting
                     self.out_count += 1
                     self.cooldown[oid] = CROSS_COOLDOWN
 
@@ -113,33 +116,36 @@ class LineCrossCounter:
         self.cooldown  = {}
 
 
-class DualLineCrossCounter:
+class MultiDoorCounter:
+    """
+    Manages N independent LineCrossCounters (one per door).
+    Each door has its own video feed and tracker, so this class only
+    aggregates totals — individual counters are updated by their threads.
+    """
 
-    def __init__(self, line_y_a, line_y_b):
-        self.door_a = LineCrossCounter(line_y_a, "A")
-        self.door_b = LineCrossCounter(line_y_b, "B")
+    def __init__(self, door_count):
+        self.counters = [LineCrossCounter(0, chr(65 + i)) for i in range(door_count)]
 
-    def update(self, tracked):
-        self.door_a.update(tracked)
-        self.door_b.update(tracked)
+    def set_line_y(self, door_index, line_y):
+        self.counters[door_index].line_y = line_y
+
+    def update(self, door_index, tracked):
+        self.counters[door_index].update(tracked)
 
     @property
     def in_count(self):
-        return self.door_a.in_count + self.door_b.in_count
+        return sum(c.in_count for c in self.counters)
 
     @property
     def out_count(self):
-        return self.door_a.out_count + self.door_b.out_count
+        return sum(c.out_count for c in self.counters)
 
-    @property
-    def door_a_in(self):  return self.door_a.in_count
-    @property
-    def door_a_out(self): return self.door_a.out_count
-    @property
-    def door_b_in(self):  return self.door_b.in_count
-    @property
-    def door_b_out(self): return self.door_b.out_count
+    def door_in(self, i):
+        return self.counters[i].in_count
+
+    def door_out(self, i):
+        return self.counters[i].out_count
 
     def reset(self):
-        self.door_a.reset()
-        self.door_b.reset()
+        for c in self.counters:
+            c.reset()
