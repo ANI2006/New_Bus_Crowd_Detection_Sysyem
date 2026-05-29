@@ -345,12 +345,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
   <!-- 03 Processing mode -->
   <div class="panel-section" id="panelProcMode">
     <div class="sec-label">03 — Processing Mode</div>
-    <div class="proc-mode-grid">
-      <button class="proc-mode-btn active" data-mode="live">LIVE<br>stream</button>
-      <button class="proc-mode-btn" data-mode="count">COUNT<br>in/out</button>
-      <button class="proc-mode-btn" data-mode="batch">BATCH<br>fast</button>
+    <div class="proc-mode-grid" style="grid-template-columns:1fr 1fr">
+      <button class="proc-mode-btn active" data-mode="count">COUNT<br><span style="font-size:8px;opacity:.7">accurate</span></button>
+      <button class="proc-mode-btn" data-mode="batch">BATCH<br><span style="font-size:8px;opacity:.7">fast</span></button>
     </div>
-    <div class="mode-hint" id="modeHint">Streams every frame with real-time detection overlay.</div>
+    <div class="mode-hint" id="modeHint">Tracks every person crossing the line — most accurate for door cameras.</div>
   </div>
 
   <!-- 04 Control -->
@@ -557,7 +556,7 @@ function doorColor(i) { return DOOR_COLORS[i % DOOR_COLORS.length]; }
 // ── State ─────────────────────────────────────────────────────────────────────
 const socket = io();
 let inputMode    = 'single';     // 'single' | 'multi'
-let selectedMode = 'live';       // 'live' | 'count' | 'batch'
+let selectedMode = 'count';       // 'count' | 'batch'
 let paused       = false;
 let hourlyChart  = null;
 
@@ -633,9 +632,8 @@ function switchInputMode(mode) {
 
 // ── Processing mode buttons ───────────────────────────────────────────────────
 const modeHints = {
-  live:  'Streams every frame with detection boxes. Counting line tracks in/out.',
-  count: 'Full entry/exit tracking via line crossing — most accurate.',
-  batch: 'Skips frames for speed — best for long recordings.',
+  count: 'Tracks every person crossing the line — most accurate for door cameras.',
+  batch: 'Skips frames for speed — best for long recordings where a snapshot count is enough.',
 };
 document.querySelectorAll('.proc-mode-btn').forEach(b => {
   b.addEventListener('click', () => {

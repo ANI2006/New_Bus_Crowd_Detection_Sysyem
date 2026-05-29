@@ -479,7 +479,7 @@ def handle_start_single(data):
             return
 
     video_path    = data.get("path")
-    mode          = data.get("mode",          "live")
+    mode          = data.get("mode",          "count")
     capacity      = int(data.get("capacity",      config.BUS_CAPACITY))
     line_ratio    = float(data.get("line_ratio",  config.LINE_RATIO))
     initial_count = int(data.get("initial_count", config.INITIAL_COUNT))
@@ -513,7 +513,7 @@ def handle_start_multi(data):
             return
 
     doors         = data.get("doors", [])
-    mode          = data.get("mode",          "live")
+    mode          = data.get("mode",          "count")
     capacity      = int(data.get("capacity",      config.BUS_CAPACITY))
     initial_count = int(data.get("initial_count", config.INITIAL_COUNT))
 
