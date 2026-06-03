@@ -42,7 +42,20 @@ header { border-bottom:1px solid var(--border); padding:0 1.5rem; height:52px;
 .status-dot { width:5px;height:5px;border-radius:50%;background:currentColor; }
 
 /* ── Layout ── */
-main { display:grid; grid-template-columns:300px 1fr; height:calc(100vh - 52px); overflow:hidden; }
+main { display:grid; grid-template-columns:var(--panel-w, 300px) 4px 1fr; height:calc(100vh - 52px); overflow:hidden; }
+/* ── Resizable panel divider ── */
+.panel-resizer {
+  width: 4px; background: var(--border); cursor: col-resize;
+  position: relative; z-index: 10; transition: background .15s; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.panel-resizer:hover, .panel-resizer.dragging { background: var(--accent); }
+.panel-resizer::after {
+  content: ''; position: absolute; top: 50%; transform: translateY(-50%);
+  width: 2px; height: 32px; border-radius: 1px;
+  background: rgba(255,255,255,0.15);
+}
+
 
 /* ── Panel ── */
 .panel { background:var(--surf);border-right:1px solid var(--border);
@@ -196,6 +209,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
 .door-video-label { font-family:var(--mono);font-size:9px;letter-spacing:.1em; }
 .door-video-fps { font-family:var(--mono);font-size:9px;color:var(--muted); }
 .door-video-canvas { width:100%;flex:1;object-fit:contain;display:block;min-height:0; }
+.door-video-counters { display:flex;gap:6px;padding:3px 8px 4px;background:rgba(10,11,13,.75);border-top:1px solid rgba(255,255,255,.06);flex-shrink:0; }
+.dvc-item { font-family:var(--mono);font-size:10px;display:flex;align-items:center;gap:4px; }
+.dvc-item .dvc-label { color:var(--muted);font-size:8px;letter-spacing:.08em; }
+.dvc-item .dvc-val { font-weight:700; }
 
 /* Alert */
 .alert-banner { position:absolute;top:10px;left:50%;transform:translateX(-50%);border-radius:8px;
@@ -250,6 +267,61 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
 #analyticsFullView { background: var(--bg); }
 #analyticsFullView .peak-card { border:1px solid var(--border); border-radius:7px; padding:8px 10px; }
 
+/* ── Seat Map ── */
+.seatmap-section { padding:.85rem 1rem; border-bottom:1px solid var(--border); }
+.seatmap-bus-selector { display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:.7rem; }
+.bus-type-btn { padding:5px 3px;border:1px solid var(--border2);border-radius:6px;background:var(--surf2);
+                color:var(--muted);font-family:var(--mono);font-size:9px;cursor:pointer;text-align:center;
+                transition:all .15s;line-height:1.4; }
+.bus-type-btn:hover { border-color:var(--accent);color:var(--text); }
+.bus-type-btn.active { border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.1); }
+.seatmap-info { display:flex;justify-content:space-between;align-items:center;margin-bottom:.55rem; }
+.seatmap-info-label { font-family:var(--mono);font-size:9px;color:var(--muted); }
+.seatmap-counts { display:flex;gap:10px;font-family:var(--mono);font-size:9px; }
+.seatmap-counts .sm-seated { color:var(--green); }
+.seatmap-counts .sm-standing { color:var(--amber); }
+.seatmap-counts .sm-free { color:var(--muted); }
+/* Bus outline */
+.seatmap-bus { background:var(--surf2);border:1px solid var(--border2);border-radius:10px;
+               padding:6px 6px 6px 8px;position:relative; }
+.seatmap-driver { width:22px;height:22px;border-radius:4px;background:var(--border2);border:1px solid var(--border);
+                   display:flex;align-items:center;justify-content:center;font-size:10px;margin-bottom:6px;
+                   flex-shrink:0; }
+.seatmap-seats-area { display:flex;flex-direction:column;gap:3px; }
+.seat-row { display:flex;gap:3px;align-items:center; }
+.seat-aisle { width:8px;flex-shrink:0; }
+.seat { width:14px;height:14px;border-radius:3px;border:1px solid var(--border2);
+        background:var(--surf);transition:background .25s,border-color .25s;cursor:default;flex-shrink:0; }
+.seat.occupied-seat  { background:#22c55e;border-color:#16a34a; }
+.seat.occupied-stand { background:#f59e0b;border-color:#d97706; }
+.seat.empty          { background:var(--surf);border-color:var(--border2); }
+/* Standing zone */
+.seatmap-standing-zone { margin-top:5px;border:1px dashed var(--border2);border-radius:6px;
+                          padding:4px 5px;position:relative; }
+.seatmap-standing-label { font-family:var(--mono);font-size:8px;color:var(--muted);
+                           letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px; }
+.standing-dots { display:flex;flex-wrap:wrap;gap:3px; }
+.stand-dot { width:12px;height:12px;border-radius:50%;border:1px solid var(--border2);
+             background:var(--surf);transition:background .2s,border-color .2s;flex-shrink:0; }
+.stand-dot.occupied { background:#f59e0b;border-color:#d97706; }
+/* Overcrowded state */
+.seatmap-bus.overcrowded { border-color:rgba(239,68,68,.6);box-shadow:0 0 0 2px rgba(239,68,68,.15); }
+.seatmap-standing-zone.overcrowded { border-color:rgba(239,68,68,.5);background:rgba(239,68,68,.04); }
+.sm-overflow { display:none;align-items:center;gap:6px;margin-top:5px;padding:5px 8px;
+               background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);
+               border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red); }
+.sm-overflow.visible { display:flex; }
+.sm-overflow-count { font-size:16px;font-weight:700; }
+.seatmap-counts .sm-overflow-inline { color:var(--red); }
+/* Legend */
+.seatmap-legend { display:flex;gap:10px;margin-top:5px; }
+.legend-item { display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:8px;color:var(--muted); }
+.legend-dot { width:9px;height:9px;border-radius:2px;flex-shrink:0; }
+/* Manual seat/standing inputs */
+.seatmap-manual { display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:.6rem; }
+.seatmap-manual label { font-size:10px;color:var(--muted);display:block;margin-bottom:2px; }
+.seatmap-manual input { width:100%;text-align:center;padding:4px 6px;font-size:11px; }
+
 /* Toast */
 .toast { position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--surf2);
          border:1px solid var(--border2);border-radius:8px;padding:8px 16px;font-family:var(--mono);
@@ -297,9 +369,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
       <div class="setting-row block" style="margin-top:.6rem">
         <div class="slider-row">
           <div class="s-label">Counting line<span>% from top</span></div>
-          <span class="slider-val" id="lineVal">55%</span>
+          <span class="slider-val" id="lineVal">60%</span>
         </div>
-        <input type="range" id="lineInput" min="20" max="90" value="55">
+        <input type="range" id="lineInput" min="20" max="90" value="60">
       </div>
     </div>
 
@@ -332,10 +404,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
   <!-- 02 Settings -->
   <div class="panel-section" id="panelSettings">
     <div class="sec-label">02 — Settings</div>
-    <div class="setting-row">
-      <div class="s-label">Capacity<span>max passengers</span></div>
-      <input type="number" id="capacityInput" value="60" min="1" max="500">
-    </div>
+    <!-- Capacity is set by the bus type in the Seat Map section below -->
+    <input type="hidden" id="capacityInput" value="60">
     <div class="setting-row">
       <div class="s-label">Starting passengers<span>already on board</span></div>
       <input type="number" id="initialCountInput" value="0" min="0" max="500">
@@ -389,7 +459,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
           <span class="sc-val" id="sPct" style="font-size:17px">—</span>
           <div class="density-badge" id="densityBadge">—</div>
         </div>
-        <div class="cap-track"><div class="cap-fill" id="capFill"></div></div>
+        <div class="cap-track" id="capTrack"><div class="cap-fill" id="capFill"></div></div>
         <div class="cap-labels"><span>0</span><span id="capMax">60</span></div>
       </div>
     </div>
@@ -398,7 +468,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
       <div class="door-strip" id="doorStripCards"></div>
     </div>
     <!-- In/out (single count mode) -->
-    <div class="stat-grid" style="margin-top:5px" id="inOutCards" style="display:none">
+    <div class="stat-grid" style="margin-top:5px" id="inOutCards">
       <div class="stat-card" id="cardIn">
         <div class="sc-label">Entered</div>
         <div class="sc-val green" id="sIn">0</div>
@@ -410,6 +480,65 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
     </div>
   </div>
 
+  <!-- 05b — Seat Map -->
+  <div class="seatmap-section" id="panelSeatMap">
+    <div class="sec-label">05b — Seat Map</div>
+
+    <!-- Bus type selector -->
+    <div class="seatmap-bus-selector">
+      <button class="bus-type-btn active" data-bus="zhongtong">Zhongtong<br><span style="font-size:8px;opacity:.6">25 seats · 35 stand</span></button>
+      <button class="bus-type-btn" data-bus="man">MAN<br><span style="font-size:8px;opacity:.6">35 seats · 50 stand</span></button>
+      <button class="bus-type-btn" data-bus="manual">Manual<br><span style="font-size:8px;opacity:.6">custom</span></button>
+    </div>
+
+    <!-- Manual inputs (hidden unless manual selected) -->
+    <div class="seatmap-manual" id="seatmapManual" style="display:none">
+      <div>
+        <label>Seats</label>
+        <input type="number" id="manualSeats" value="30" min="1" max="200">
+      </div>
+      <div>
+        <label>Standing</label>
+        <input type="number" id="manualStand" value="40" min="0" max="300">
+      </div>
+    </div>
+
+    <!-- Live counts -->
+    <div class="seatmap-info">
+      <span class="seatmap-info-label" id="smBusLabel">Zhongtong · 60 total</span>
+      <div class="seatmap-counts">
+        <span class="sm-seated">●&nbsp;<span id="smSeatedCount">0</span> seated</span>
+        <span class="sm-standing">●&nbsp;<span id="smStandingCount">0</span> standing</span>
+        <span class="sm-free" id="smFreeWrap"><span id="smFreeCount">60</span> free</span>
+        <span class="sm-overflow-inline" id="smOverflowInline" style="display:none">+<span id="smOverflowInlineCount">0</span> over</span>
+      </div>
+    </div>
+
+    <!-- Bus outline with seat grid -->
+    <div class="seatmap-bus" id="seatmapBus">
+      <div class="seatmap-driver" title="Driver">🧑</div>
+      <div class="seatmap-seats-area" id="seatGrid"></div>
+      <div class="seatmap-standing-zone" id="smStandingZone">
+        <div class="seatmap-standing-label">Standing area</div>
+        <div class="standing-dots" id="standingDots"></div>
+      </div>
+      <!-- Overflow badge — shown when count > capacity -->
+      <div class="sm-overflow" id="smOverflowBadge">
+        <span>🚨</span>
+        <span class="sm-overflow-count" id="smOverflowCount">0</span>
+        <span>people over capacity — bus overcrowded</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="seatmap-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Seated</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Standing</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--surf);border:1px solid var(--border2)"></div>Free</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Over capacity</div>
+    </div>
+  </div>
+
   <!-- 06 Session logs -->
   <div class="panel-section" style="flex:1" id="panelLogs">
     <div class="sec-label">06 — Session Logs</div>
@@ -418,6 +547,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
   </div>
 
 </aside>
+
+<!-- ── Resizer ── -->
+<div class="panel-resizer" id="panelResizer"></div>
 
 <!-- ── Content ── -->
 <section class="content">
@@ -547,9 +679,16 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;width:13px;hei
 
 <script>
 // ── Door colour palette (mirrors drawing.py) ──────────────────────────────────
+// Mirrors drawing.py _DOOR_PALETTE — keep in sync if palette changes
 const DOOR_COLORS = [
-  '#06b6d4', '#f59e0b', '#a78bfa', '#22c55e',
-  '#fb923c', '#f472b6', '#2dd4bf', '#bef264',
+  '#06b6d4', // cyan   — Door A
+  '#eab308', // yellow — Door B (was #f59e0b amber, now distinct from cyan)
+  '#a78bfa', // purple — Door C
+  '#22c55e', // green  — Door D
+  '#fb923c', // orange — Door E
+  '#f472b6', // pink   — Door F
+  '#2dd4bf', // teal   — Door G
+  '#bef264', // lime   — Door H
 ];
 function doorColor(i) { return DOOR_COLORS[i % DOOR_COLORS.length]; }
 
@@ -576,14 +715,22 @@ const chart = new Chart(chartCtx, {
   data: {
     labels: [],
     datasets: [{
-      label: 'People in bus',
+      label: 'Passengers',
       data: [], borderColor: '#3b82f6',
       backgroundColor: 'rgba(59,130,246,0.08)',
       borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true,
+      yAxisID: 'yCount',
     }, {
       label: 'Capacity',
-      data: [], borderColor: 'rgba(239,68,68,0.4)',
-      borderWidth: 1, borderDash: [4,4], pointRadius: 0, fill: false,
+      data: [], borderColor: 'rgba(239,68,68,0.45)',
+      borderWidth: 1.5, borderDash: [4,4], pointRadius: 0, fill: false,
+      yAxisID: 'yCount',
+    }, {
+      label: 'Occupancy %',
+      data: [], borderColor: 'rgba(168,85,247,0.85)',
+      backgroundColor: 'rgba(168,85,247,0.06)',
+      borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false,
+      yAxisID: 'yPct',
     }]
   },
   options: {
@@ -591,7 +738,9 @@ const chart = new Chart(chartCtx, {
     plugins: { legend: { labels: { color:'#5a6070', font:{ family:'Space Mono', size:10 }, boxWidth:12 } } },
     scales: {
       x: { ticks:{color:'#5a6070',font:{size:9},maxTicksLimit:8}, grid:{color:'#1f2330'} },
-      y: { ticks:{color:'#5a6070',font:{size:9}}, grid:{color:'#1f2330'}, beginAtZero:true }
+      yCount: { position:'left', ticks:{color:'#5a6070',font:{size:9}}, grid:{color:'#1f2330'}, beginAtZero:true },
+      yPct:   { position:'right', ticks:{color:'rgba(168,85,247,0.7)',font:{size:9}, callback: v => v+'%'},
+                grid:{drawOnChartArea:false}, beginAtZero:true }
     }
   }
 });
@@ -621,7 +770,7 @@ function switchInputMode(mode) {
   document.getElementById('liveView').style.display          = isAnalytics ? 'none' : 'flex';
 
   // Hide settings/control/stats sections when in analytics mode
-  ['panelSettings','panelProcMode','panelControl','panelStats','panelLogs'].forEach(id => {
+  ['panelSettings','panelProcMode','panelControl','panelStats','panelSeatMap','panelLogs'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAnalytics ? 'none' : '';
   });
@@ -660,14 +809,29 @@ async function uploadSingle(file) {
   fd.append('video', file);
   try {
     const r = await fetch('/upload', {method:'POST', body:fd});
+    if (r.status === 413) {
+      document.getElementById('fileTagSingle').textContent = '✗ File too large (max 2 GB)';
+      toast('Upload failed — file exceeds 2 GB limit');
+      uploadedPath = null;
+      updateStartBtn();
+      return;
+    }
     const d = await r.json();
     if (d.ok) {
       uploadedPath = d.path;
       document.getElementById('fileTagSingle').textContent = '✓ ' + d.name;
       toast('Ready — ' + d.name);
       updateStartBtn();
+    } else {
+      document.getElementById('fileTagSingle').textContent = '✗ ' + (d.error || 'Upload error');
+      toast('Upload failed: ' + (d.error || 'unknown error'));
+      uploadedPath = null;
+      updateStartBtn();
     }
-  } catch(e) { toast('Upload failed'); }
+  } catch(e) {
+    document.getElementById('fileTagSingle').textContent = '✗ Upload failed';
+    toast('Upload failed — check your connection');
+  }
 }
 
 document.getElementById('lineInput').addEventListener('input', function() {
@@ -702,9 +866,9 @@ function addDoor() {
     </div>
     <div class="door-slider-row">
       <label style="color:var(--muted);font-size:9px;font-family:var(--mono)">LINE</label>
-      <input type="range" id="doorLine${i}" min="20" max="90" value="55"
+      <input type="range" id="doorLine${i}" min="20" max="90" value="60"
              oninput="document.getElementById('doorLineVal${i}').textContent=this.value+'%'">
-      <span class="door-slider-val" id="doorLineVal${i}">55%</span>
+      <span class="door-slider-val" id="doorLineVal${i}">60%</span>
     </div>`;
   document.getElementById('doorList').appendChild(entry);
 
@@ -713,7 +877,7 @@ function addDoor() {
     if (fileInput.files[0]) uploadDoorFile(i, fileInput.files[0]);
   });
 
-  doors.push({ path: null, lineRatio: 0.55 });
+  doors.push({ path: null, lineRatio: 0.60 });
   updateStartBtn();
 }
 
@@ -748,22 +912,37 @@ async function uploadDoorFile(i, file) {
   fd.append('video', file);
   try {
     const r = await fetch('/upload', {method:'POST', body:fd});
+    if (r.status === 413) {
+      document.getElementById(`doorFileLabel${i}`).textContent = '✗ File too large (max 2 GB)';
+      toast(`Door ${String.fromCharCode(65+i)}: file exceeds 2 GB limit`);
+      doors[i].path = null;
+      updateStartBtn();
+      return;
+    }
     const d = await r.json();
     if (d.ok) {
       doors[i].path = d.path;
       document.getElementById(`doorFileLabel${i}`).textContent = '✓ ' + d.name;
       toast(`Door ${String.fromCharCode(65+i)}: ready`);
       updateStartBtn();
+    } else {
+      document.getElementById(`doorFileLabel${i}`).textContent = '✗ ' + (d.error || 'Upload error');
+      toast('Upload failed for door ' + String.fromCharCode(65+i) + ': ' + (d.error || 'unknown'));
+      doors[i].path = null;
+      updateStartBtn();
     }
-  } catch(e) { toast('Upload failed for door ' + String.fromCharCode(65+i)); }
+  } catch(e) {
+    document.getElementById(`doorFileLabel${i}`).textContent = '✗ Upload failed';
+    toast('Upload failed for door ' + String.fromCharCode(65+i));
+  }
 }
 
 function updateStartBtn() {
   let ready = false;
   if (inputMode === 'single') {
     ready = !!uploadedPath;
-  } else {
-    ready = doors.length >= 2 && doors.every(d => d.path);
+  } else if (inputMode === 'multi') {
+    ready = doors.length >= 1 && doors.every(d => d.path);
   }
   document.getElementById('startBtn').disabled = !ready;
 }
@@ -774,8 +953,10 @@ document.getElementById('pauseBtn').addEventListener('click', togglePause);
 document.getElementById('stopBtn').addEventListener('click', stopProcessing);
 
 function startProcessing() {
-  const capacity      = parseInt(document.getElementById('capacityInput').value) || 60;
+  const capacity      = smConfig.seats + smConfig.standing;
   const initial_count = parseInt(document.getElementById('initialCountInput').value) || 0;
+  // Keep hidden input in sync so any legacy reads still work
+  document.getElementById('capacityInput').value = capacity;
 
   setStatus('active', 'RUNNING');
   document.getElementById('startBtn').disabled = true;
@@ -784,8 +965,6 @@ function startProcessing() {
   document.getElementById('progWrap').style.display = 'block';
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('mInitial').textContent = initial_count;
-  document.getElementById('capMax').textContent   = capacity;
-  document.getElementById('mCap').textContent     = capacity;
 
   chart.data.labels = [];
   chart.data.datasets[0].data = [];
@@ -858,7 +1037,21 @@ function buildMultiGrid(n) {
         <span class="door-video-label" style="color:${color}">DOOR ${label}</span>
         <span class="door-video-fps" id="doorFps${i}">— fps</span>
       </div>
-      <canvas class="door-video-canvas" id="doorCanvas${i}"></canvas>`;
+      <canvas class="door-video-canvas" id="doorCanvas${i}"></canvas>
+      <div class="door-video-counters">
+        <div class="dvc-item">
+          <span class="dvc-label">IN</span>
+          <span class="dvc-val" id="doorIn${i}" style="color:var(--green)">0</span>
+        </div>
+        <div class="dvc-item" style="margin-left:2px">
+          <span class="dvc-label">OUT</span>
+          <span class="dvc-val" id="doorOut${i}" style="color:var(--red)">0</span>
+        </div>
+        <div class="dvc-item" style="margin-left:auto">
+          <span class="dvc-label">NET</span>
+          <span class="dvc-val" id="doorNet${i}" style="color:var(--muted)">0</span>
+        </div>
+      </div>`;
     grid.appendChild(card);
     doorCanvases[i] = document.getElementById(`doorCanvas${i}`);
   }
@@ -886,7 +1079,12 @@ function buildDoorStrip(n) {
 
 // ── Socket events ─────────────────────────────────────────────────────────────
 socket.on('video_info', d => {
-  document.getElementById('frameLabel').textContent = `0 / ${d.total_frames}`;
+  const label = d.total_frames > 0 ? `0 / ${d.total_frames}` : '— (unknown length)';
+  document.getElementById('frameLabel').textContent = label;
+});
+
+socket.on('warning', d => {
+  toast('⚠ ' + d.msg);
 });
 
 socket.on('frame_data', d => {
@@ -927,7 +1125,7 @@ socket.on('multi_frame_data', d => {
       if (el) el.textContent = fps + ' fps';
     });
   }
-  // Door strip IN/OUT
+  // Door strip IN/OUT (sidebar strip)
   if (d.door_in_list) {
     d.door_in_list.forEach((v, idx) => {
       const el = document.getElementById(`stripIn${idx}`);
@@ -938,6 +1136,18 @@ socket.on('multi_frame_data', d => {
     d.door_out_list.forEach((v, idx) => {
       const el = document.getElementById(`stripOut${idx}`);
       if (el) el.textContent = 'OUT ' + v;
+    });
+  }
+  // Door card IN/OUT/NET counters (on each video feed card)
+  if (d.door_in_list && d.door_out_list) {
+    d.door_in_list.forEach((inVal, idx) => {
+      const outVal = d.door_out_list[idx] ?? 0;
+      const inEl  = document.getElementById(`doorIn${idx}`);
+      const outEl = document.getElementById(`doorOut${idx}`);
+      const netEl = document.getElementById(`doorNet${idx}`);
+      if (inEl)  inEl.textContent  = inVal;
+      if (outEl) outEl.textContent = outVal;
+      if (netEl) { const net = inVal - outVal; netEl.textContent = net; netEl.style.color = net > 0 ? 'var(--amber)' : 'var(--muted)'; }
     });
   }
   // Combined progress (average across doors)
@@ -994,14 +1204,45 @@ socket.on('error', d => {
   document.getElementById('stopBtn').disabled  = true;
 });
 
+// ── Connection status ─────────────────────────────────────────────────────────
+socket.on('disconnect', () => {
+  setStatus('idle', 'DISCONNECTED');
+  toast('⚠ Connection lost — trying to reconnect…');
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('pauseBtn').disabled = true;
+  document.getElementById('stopBtn').disabled  = true;
+});
+
+socket.on('connect', () => {
+  // Only show reconnected toast if we were previously connected (not first load)
+  if (socket._reconnecting) {
+    toast('✓ Reconnected');
+    setStatus('idle', 'IDLE');
+    document.getElementById('startBtn').disabled = !uploadedPath && doors.every(d => !d.path);
+  }
+  socket._reconnecting = true;
+});
+
 // ── Shared stat updater ───────────────────────────────────────────────────────
 function updateStats(d) {
   document.getElementById('sCount').textContent   = d.count;
   document.getElementById('sFps').textContent     = typeof d.fps === 'number' ? Math.round(d.fps) : d.fps;
-  document.getElementById('sPct').textContent     = d.occupancy_pct + '%';
+  // Show real %, even above 100 when overcrowded
+  const pctDisplay = d.occupancy_pct + '%';
+  document.getElementById('sPct').textContent     = pctDisplay;
   const fill = document.getElementById('capFill');
-  fill.style.width      = d.occupancy_pct + '%';
+  // Cap the bar width at 100% visually, but add a pulsing outline when overcrowded
+  fill.style.width      = Math.min(d.occupancy_pct, 100) + '%';
   fill.style.background = d.density_color;
+  const capTrack = document.getElementById('capTrack');
+  if (capTrack) {
+    if (d.occupancy_pct > 100) {
+      capTrack.style.boxShadow = '0 0 0 2px rgba(147,51,234,0.5)';
+      capTrack.style.borderRadius = '3px';
+    } else {
+      capTrack.style.boxShadow = '';
+    }
+  }
   const badge = document.getElementById('densityBadge');
   badge.textContent       = d.density;
   badge.style.color       = d.density_color;
@@ -1017,6 +1258,7 @@ function updateStats(d) {
   document.getElementById('mOut').textContent    = d.out_count ?? d.total_out ?? '—';
   document.getElementById('sIn').textContent     = d.in_count  ?? d.total_in  ?? '—';
   document.getElementById('sOut').textContent    = d.out_count ?? d.total_out ?? '—';
+  updateSeatMap(d.count ?? 0);
 }
 
 function updateChart(d) {
@@ -1024,6 +1266,8 @@ function updateChart(d) {
     chart.data.labels           = d.timeline.map(p => p.t + 's');
     chart.data.datasets[0].data = d.timeline.map(p => p.count);
     chart.data.datasets[1].data = d.timeline.map(() => d.capacity);
+    // Occupancy % — may exceed 100 when overcrowded
+    chart.data.datasets[2].data = d.timeline.map(p => p.pct);
     chart.update('none');
   }
 }
@@ -1121,7 +1365,7 @@ async function loadAnalyticsFull() {
         },
         scales: {
           x: { ticks:{color:'#5a6070', font:{size:8}, maxRotation:0}, grid:{color:'#1f2330'} },
-          y: { ticks:{color:'#5a6070', font:{size:9}, callback: v => v+'%'}, grid:{color:'#1f2330'}, beginAtZero:true, max:100 }
+          y: { ticks:{color:'#5a6070', font:{size:9}, callback: v => v+'%'}, grid:{color:'#1f2330'}, beginAtZero:true }
         }
       }
     });
@@ -1171,8 +1415,183 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+// ── Seat Map ──────────────────────────────────────────────────────────────────
+const BUS_PRESETS = {
+  zhongtong: { name: 'Zhongtong', seats: 25, standing: 35 },
+  man:        { name: 'MAN Lion\'s City', seats: 35, standing: 50 },
+  manual:     { name: 'Manual', seats: 30, standing: 40 },
+};
+
+let smConfig = { seats: 25, standing: 35, busType: 'zhongtong' };
+
+// Bus type buttons
+document.querySelectorAll('.bus-type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.bus-type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const type = btn.dataset.bus;
+    smConfig.busType = type;
+    const manual = document.getElementById('seatmapManual');
+    if (type === 'manual') {
+      manual.style.display = 'grid';
+      smConfig.seats    = parseInt(document.getElementById('manualSeats').value) || 30;
+      smConfig.standing = parseInt(document.getElementById('manualStand').value) || 40;
+    } else {
+      manual.style.display = 'none';
+      smConfig.seats    = BUS_PRESETS[type].seats;
+      smConfig.standing = BUS_PRESETS[type].standing;
+    }
+    buildSeatMap();
+    updateSeatMap(0);
+  });
+});
+
+// Manual input changes
+['manualSeats','manualStand'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (smConfig.busType !== 'manual') return;
+    smConfig.seats    = parseInt(document.getElementById('manualSeats').value) || 30;
+    smConfig.standing = parseInt(document.getElementById('manualStand').value) || 40;
+    buildSeatMap();
+    updateSeatMap(0);
+  });
+});
+
+function buildSeatMap() {
+  const { seats, standing, busType } = smConfig;
+  const total = seats + standing;
+  const presetName = BUS_PRESETS[busType]?.name || 'Custom';
+  document.getElementById('smBusLabel').textContent = `${presetName} · ${total} total`;
+  document.getElementById('smFreeCount').textContent = total;
+
+  // Build seat grid — 2 seats | aisle | 2 seats layout (like a real bus)
+  const grid = document.getElementById('seatGrid');
+  grid.innerHTML = '';
+  const rows = Math.ceil(seats / 4);
+  let seatIdx = 0;
+  for (let r = 0; r < rows; r++) {
+    const row = document.createElement('div');
+    row.className = 'seat-row';
+    for (let c = 0; c < 4; c++) {
+      if (c === 2) {
+        // Aisle gap
+        const aisle = document.createElement('div');
+        aisle.className = 'seat-aisle';
+        row.appendChild(aisle);
+      }
+      if (seatIdx < seats) {
+        const seat = document.createElement('div');
+        seat.className = 'seat empty';
+        seat.id = `seat-${seatIdx}`;
+        seat.title = `Seat ${seatIdx + 1}`;
+        row.appendChild(seat);
+        seatIdx++;
+      }
+    }
+    grid.appendChild(row);
+  }
+
+  // Build standing dots
+  const dots = document.getElementById('standingDots');
+  dots.innerHTML = '';
+  for (let i = 0; i < standing; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'stand-dot';
+    dot.id = `stand-${i}`;
+    dot.title = `Standing ${i + 1}`;
+    dots.appendChild(dot);
+  }
+}
+
+function updateSeatMap(count) {
+  const { seats, standing } = smConfig;
+  const capacity    = seats + standing;
+  const overflow    = Math.max(0, count - capacity);
+  const isOver      = overflow > 0;
+
+  // When overcrowded, all seats and standing are full
+  const seatedNow   = isOver ? seats    : Math.min(count, seats);
+  const standingNow = isOver ? standing : Math.max(0, count - seats);
+  const freeNow     = isOver ? 0        : capacity - count;
+
+  // Counts row
+  document.getElementById('smSeatedCount').textContent  = seatedNow;
+  document.getElementById('smStandingCount').textContent = standingNow;
+  document.getElementById('smFreeCount').textContent     = freeNow;
+  document.getElementById('smFreeWrap').style.display    = isOver ? 'none' : '';
+
+  // Overflow inline badge in counts row
+  const inlineEl = document.getElementById('smOverflowInline');
+  inlineEl.style.display = isOver ? '' : 'none';
+  document.getElementById('smOverflowInlineCount').textContent = overflow;
+
+  // Overflow banner inside bus outline
+  const badgeEl = document.getElementById('smOverflowBadge');
+  badgeEl.classList.toggle('visible', isOver);
+  document.getElementById('smOverflowCount').textContent = overflow;
+
+  // Bus outline and standing zone turn red when overcrowded
+  document.getElementById('seatmapBus').classList.toggle('overcrowded', isOver);
+  document.getElementById('smStandingZone').classList.toggle('overcrowded', isOver);
+
+  // Seat cells — all green when over capacity
+  for (let i = 0; i < seats; i++) {
+    const el = document.getElementById(`seat-${i}`);
+    if (!el) continue;
+    el.className = 'seat ' + (i < seatedNow ? 'occupied-seat' : 'empty');
+  }
+
+  // Standing dots — all amber when over capacity
+  for (let i = 0; i < standing; i++) {
+    const el = document.getElementById(`stand-${i}`);
+    if (!el) continue;
+    el.className = 'stand-dot' + (i < standingNow ? ' occupied' : '');
+  }
+}
+
+// Init map on load
+buildSeatMap();
+updateSeatMap(0);
+
 // Init: add 2 doors by default in multi mode
 setDoorCount(2);
+
+// ── Panel resize drag ─────────────────────────────────────────────────────────
+(function() {
+  const resizer = document.getElementById('panelResizer');
+  const mainEl  = document.querySelector('main');
+  const MIN_W   = 220;   // px — smallest the panel can go
+  const MAX_W   = 520;   // px — largest the panel can go
+
+  let dragging = false;
+  let startX   = 0;
+  let startW   = 0;
+
+  resizer.addEventListener('mousedown', e => {
+    e.preventDefault();
+    dragging = true;
+    startX   = e.clientX;
+    startW   = parseInt(getComputedStyle(mainEl).getPropertyValue('--panel-w')) || 300;
+    resizer.classList.add('dragging');
+    document.body.style.cursor    = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const delta = e.clientX - startX;
+    const newW  = Math.min(MAX_W, Math.max(MIN_W, startW + delta));
+    mainEl.style.setProperty('--panel-w', newW + 'px');
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    document.body.style.cursor    = '';
+    document.body.style.userSelect = '';
+  });
+})();
 </script>
 </body>
 </html>

@@ -1,13 +1,28 @@
-# Web framework
+# ── Web framework ─────────────────────────────────────────────────────────────
 flask>=3.0.0
 flask-socketio>=5.3.6
 python-socketio>=5.10.0
 python-engineio>=4.9.0
-eventlet>=0.35.2
+# Werkzeug is a Flask dependency — pin it to avoid breaking API changes
 werkzeug>=3.0.0
 
-# Computer vision
+# ── Async / concurrency ───────────────────────────────────────────────────────
+# eventlet gives the best SocketIO threading performance on Linux/Mac.
+# On Windows you can swap this for gevent:  gevent>=23.0.0  gevent-websocket>=0.10.1
+eventlet>=0.35.2
+
+# ── Computer vision ───────────────────────────────────────────────────────────
 opencv-python>=4.9.0
 
-# YOLOv8 (also installs torch, torchvision, numpy, pillow, pyyaml, tqdm, scipy)
+# ── YOLOv8 object detection ───────────────────────────────────────────────────
+# ultralytics pulls in: torch, torchvision, numpy, pillow, pyyaml, tqdm, scipy, psutil
 ultralytics>=8.2.0
+
+# ── Optional: GPU acceleration ────────────────────────────────────────────────
+# If you have an NVIDIA GPU, install the CUDA build of PyTorch BEFORE running
+# pip install -r requirements.txt, then skip the CPU torch that ultralytics pulls in:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt --no-deps ultralytics   # skip re-installing torch
+#
+# Check https://pytorch.org/get-started/locally/ for the right CUDA version.

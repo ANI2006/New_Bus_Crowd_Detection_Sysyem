@@ -1,3 +1,8 @@
+"""
+tracker.py — CentroidTracker and LineCrossCounter for BusOccupancy AI
+
+
+"""
 import math
 from config import CROSS_COOLDOWN
 
@@ -5,11 +10,12 @@ from config import CROSS_COOLDOWN
 class CentroidTracker:
     """Assigns persistent IDs to detections by nearest-centroid matching."""
 
-    def __init__(self, max_disappeared=30):
+    def __init__(self, max_disappeared=30, match_dist=120):
         self.next_id         = 0
         self.objects         = {}
         self.disappeared     = {}
         self.max_disappeared = max_disappeared
+        self.match_dist      = match_dist   # max px distance to match same person
 
     def _register(self, cx, cy):
         self.objects[self.next_id]     = (cx, cy)
@@ -49,7 +55,7 @@ class CentroidTracker:
             for d, r, c in pairs:
                 if r in used_rows or c in used_cols:
                     continue
-                if d > 120:
+                if d > self.match_dist:
                     break
                 oid = oids[r]
                 self.objects[oid]     = centroids[c]
@@ -78,12 +84,14 @@ class CentroidTracker:
 class LineCrossCounter:
     """Counts upward/downward crossings of a horizontal line."""
 
-    def __init__(self, line_y, label="A"):
+    def __init__(self, line_y, label="A", cooldown=None):
         self.line_y    = line_y
         self.label     = label
         self.prev_cy   = {}
         self.in_count  = 0
         self.out_count = 0
+        # Allow caller to override cooldown (e.g. scaled by SKIP)
+        self._cooldown_val = cooldown if cooldown is not None else CROSS_COOLDOWN
         self.cooldown  = {}
 
     def update(self, tracked):
@@ -97,10 +105,10 @@ class LineCrossCounter:
                 prev = self.prev_cy[oid]
                 if prev < self.line_y <= cy:        # crossed downward → entering
                     self.in_count += 1
-                    self.cooldown[oid] = CROSS_COOLDOWN
+                    self.cooldown[oid] = self._cooldown_val
                 elif prev > self.line_y >= cy:      # crossed upward  → exiting
                     self.out_count += 1
-                    self.cooldown[oid] = CROSS_COOLDOWN
+                    self.cooldown[oid] = self._cooldown_val
 
             self.prev_cy[oid] = cy
 
@@ -114,38 +122,3 @@ class LineCrossCounter:
         self.in_count  = 0
         self.out_count = 0
         self.cooldown  = {}
-
-
-class MultiDoorCounter:
-    """
-    Manages N independent LineCrossCounters (one per door).
-    Each door has its own video feed and tracker, so this class only
-    aggregates totals — individual counters are updated by their threads.
-    """
-
-    def __init__(self, door_count):
-        self.counters = [LineCrossCounter(0, chr(65 + i)) for i in range(door_count)]
-
-    def set_line_y(self, door_index, line_y):
-        self.counters[door_index].line_y = line_y
-
-    def update(self, door_index, tracked):
-        self.counters[door_index].update(tracked)
-
-    @property
-    def in_count(self):
-        return sum(c.in_count for c in self.counters)
-
-    @property
-    def out_count(self):
-        return sum(c.out_count for c in self.counters)
-
-    def door_in(self, i):
-        return self.counters[i].in_count
-
-    def door_out(self, i):
-        return self.counters[i].out_count
-
-    def reset(self):
-        for c in self.counters:
-            c.reset()

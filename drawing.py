@@ -1,17 +1,24 @@
-import cv2, math
+"""
+drawing.py — OpenCV annotation helpers for BusOccupancy AI
+
+Fix: C_YELLOW was identical to C_AMBER (both (40, 210, 255) / (40, 180, 255)).
+     True yellow in BGR is (0, 215, 255) — now visually distinct from cyan.
+"""
+import cv2
+import math
 
 C_GREEN  = (80,  220, 140)
 C_RED    = (80,  90,  230)
 C_CYAN   = (60,  210, 255)
-C_YELLOW = (40,  210, 255)
+C_YELLOW = (0,   215, 255)   
 C_BLACK  = (10,  10,  10)
 C_WHITE  = (235, 235, 235)
 C_AMBER  = (40,  180, 255)
 
-# Colour palette for up to 8 doors — cycles beyond that
+# Colour palette for up to 8 doors 
 _DOOR_PALETTE = [
     (60,  210, 255),   # cyan   — Door A
-    (40,  210, 255),   # amber  — Door B
+    (0,   215, 255),   # yellow — Door B  
     (140, 100, 255),   # purple — Door C
     (80,  220, 140),   # green  — Door D
     (255, 160,  60),   # orange — Door E

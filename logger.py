@@ -1,4 +1,11 @@
-import csv, os, time
+"""
+logger.py — CSV session logger + hourly log analysis for BusOccupancy AI
+
+
+"""
+import csv
+import os
+import time
 from datetime import datetime
 from config import LOG_FOLDER
 
@@ -15,6 +22,8 @@ class SessionLogger:
     def __init__(self, video_name: str, door_count: int = 1):
         ts        = time.strftime("%Y%m%d_%H%M%S")
         safe_name = os.path.splitext(os.path.basename(str(video_name)))[0]
+        # Replace spaces and problematic chars so the timestamp tokens are findable
+        safe_name = safe_name.replace(" ", "_")
         self.path       = os.path.join(LOG_FOLDER, f"{safe_name}_{ts}.csv")
         self.door_count = door_count
         self._file      = open(self.path, "w", newline="")
@@ -71,15 +80,36 @@ class SessionLogger:
         }
 
 
+def _parse_hour_from_filename(fname: str) -> int | None:
+    """
+    Extract the session hour from a log filename.
+
+    Expected tail: ..._YYYYMMDD_HHMMSS.csv
+    Strategy: strip .csv, split on '_', walk from the RIGHT looking for
+    the first 6-digit all-numeric token (HHMMSS) that is preceded by an
+    8-digit all-numeric token (YYYYMMDD).  
+    """
+    stem   = fname.removesuffix(".csv")
+    parts  = stem.split("_")
+
+    for i in range(len(parts) - 1, 0, -1):
+        hhmmss   = parts[i]
+        yyyymmdd = parts[i - 1]
+        if (len(hhmmss) == 6 and hhmmss.isdigit() and
+                len(yyyymmdd) == 8 and yyyymmdd.isdigit()):
+            hour = int(hhmmss[:2])
+            if 0 <= hour <= 23:
+                return hour
+    return None
+
+
 def analyze_logs() -> tuple[dict, list]:
     """
     Read all CSV logs and compute hourly occupancy patterns.
-    Filename format: <videoname>_YYYYMMDD_HHMMSS.csv
-    The hour is parsed from the last HHMMSS segment.
 
     Returns:
-        hourly: dict  {0..23: {avg_pct, max_pct, sample_count}}
-        summaries: list of per-log dicts
+        hourly    — dict {0..23: {avg_pct, max_pct, sample_count}}
+        summaries — list of per-log summary dicts
     """
     hourly = {h: {"total_pct": 0.0, "max_pct": 0.0, "samples": 0}
               for h in range(24)}
@@ -99,19 +129,12 @@ def analyze_logs() -> tuple[dict, list]:
             if not rows:
                 continue
 
-            # Extract hour: last underscore-separated token is HHMMSS.csv
-            hour = None
-            try:
-                hhmmss = fname.rsplit("_", 1)[-1].replace(".csv", "")
-                if len(hhmmss) == 6 and hhmmss.isdigit():
-                    hour = int(hhmmss[:2])
-            except Exception:
-                pass
+            hour = _parse_hour_from_filename(fname)
 
             pcts = []
             for row in rows:
                 try:
-                    pct = float(row.get("occupancy_pct", 0))
+                    pct = max(0.0, float(row.get("occupancy_pct", 0)))
                     pcts.append(pct)
                     if hour is not None:
                         hourly[hour]["total_pct"] += pct
